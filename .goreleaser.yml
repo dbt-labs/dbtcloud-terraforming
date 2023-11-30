@@ -1,0 +1,17 @@
+changelog:
+  skip: true
+checksum:
+  name_template: 'checksums.txt'
+snapshot:
+  name_template: "{{ .Tag }}-next"
+builds:
+  - main: ./cmd/dbtcloud-terraforming/main.go
+    binary: dbtcloud-terraforming
+    ldflags:
+      - -s -w -X "github.com/dbt-cloud/dbtcloud-terraforming/internal/app/dbtcloud-terraforming/cmd.versionString={{.Env.VERSION}}"
+    goos:
+      - darwin
+      - linux
+      - windows
+    env:
+      - CGO_ENABLED=0

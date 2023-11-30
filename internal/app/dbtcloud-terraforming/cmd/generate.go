@@ -1,0 +1,1245 @@
+package cmd
+
+import (
+	"context"
+	"os"
+	"sort"
+
+	"github.com/dbt-cloud/dbtcloud-terraforming/dbtcloud"
+	"github.com/hashicorp/go-version"
+	"github.com/hashicorp/hc-install/product"
+	"github.com/hashicorp/hc-install/releases"
+	"github.com/hashicorp/hcl/v2/hclwrite"
+	"github.com/hashicorp/terraform-exec/tfexec"
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
+	"github.com/zclconf/go-cty/cty"
+
+	"fmt"
+)
+
+var resourceType string
+
+func init() {
+	rootCmd.AddCommand(generateCmd)
+}
+
+var generateCmd = &cobra.Command{
+	Use:    "generate",
+	Short:  "Fetch resources from the dbt Cloud API and generate the respective Terraform stanzas",
+	Run:    generateResources(),
+	PreRun: sharedPreRun,
+}
+
+func generateResources() func(cmd *cobra.Command, args []string) {
+	return func(cmd *cobra.Command, args []string) {
+		if resourceType == "" {
+			log.Fatal("you must define a resource type to generate")
+		}
+
+		accountID = viper.GetString("account")
+		apiToken = viper.GetString("token")
+		hostname = viper.GetString("hostname")
+		if hostname == "" {
+			hostname = "cloud.getdbt.com"
+		}
+
+		config := dbtcloud.DbtCloudConfig{
+			Hostname:  hostname,
+			APIToken:  apiToken,
+			AccountID: accountID,
+		}
+
+		var execPath, workingDir string
+		workingDir = viper.GetString("terraform-install-path")
+		execPath = viper.GetString("terraform-binary-path")
+
+		//Download terraform if no existing binary was provided
+		if execPath == "" {
+			tmpDir, err := os.MkdirTemp("", "tfinstall")
+			if err != nil {
+				log.Fatal(err)
+			}
+			defer os.RemoveAll(tmpDir)
+
+			installConstraints, err := version.NewConstraint("~> 1.0")
+			if err != nil {
+				log.Fatal("failed to parse version constraints for installation version")
+			}
+
+			installer := &releases.LatestVersion{
+				Product:     product.Terraform,
+				Constraints: installConstraints,
+			}
+
+			execPath, err = installer.Install(context.Background())
+			if err != nil {
+				log.Fatalf("error installing Terraform: %s", err)
+			}
+		}
+
+		// Setup and configure Terraform to operate in the temporary directory where
+		// the provider is already configured.
+		log.Debugf("initializing Terraform in %s", workingDir)
+		tf, err := tfexec.NewTerraform(workingDir, execPath)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		log.Debug("reading Terraform schema for dbt Cloud provider")
+		ps, err := tf.ProvidersSchema(context.Background())
+		if err != nil {
+			log.Fatal("failed to read provider schema", err)
+		}
+		s := ps.Schemas["registry.terraform.io/dbt-labs/dbtcloud"]
+		if s == nil {
+			log.Fatal("failed to detect provider installation")
+		}
+
+		r := s.ResourceSchemas[resourceType]
+		log.Debugf("beginning to read and build %s resources", resourceType)
+
+		// Initialise `resourceCount` outside of the switch for supported resources
+		// to allow it to be referenced further down in the loop that outputs the
+		// newly generated resources.
+		resourceCount := 0
+
+		// Lazy approach to restrict support to known resources due to Go's type
+		// restrictions and the need to explicitly map out the structs.
+
+		// type DataResult struct {
+		// 	Result []interface{}
+		// }
+
+		// type Answer struct {
+		// 	Data []DataResult `json:"data"`
+		// }
+
+		// type Response struct {
+		// 	Data []interface{} `json:"data"`
+		// }
+
+		// var answer DataWrapper
+		// var jsonStructData []interface{}
+
+		// var identifier *cloudflare.ResourceContainer
+		// if accountID != "" {
+		// 	identifier = cloudflare.AccountIdentifier(accountID)
+		// } else {
+		// 	identifier = cloudflare.ZoneIdentifier(zoneID)
+		// }
+		var jsonStructData []interface{}
+
+		switch resourceType {
+		case "dbtcloud_project":
+
+			jsonStructData = dbtcloud.GetProjects(config)
+			resourceCount = len(jsonStructData)
+
+		case "dbtcloud_project_connection":
+
+			listProjects := dbtcloud.GetProjects(config)
+
+			for _, project := range listProjects {
+				projectTyped := project.(map[string]interface{})
+				projectTyped["project_id"] = projectTyped["id"].(float64)
+				jsonStructData = append(jsonStructData, projectTyped)
+			}
+
+			resourceCount = len(jsonStructData)
+
+		case "dbtcloud_job":
+
+			jobs := dbtcloud.GetJobs(config)
+
+			for _, job := range jobs {
+				jobTyped := job.(map[string]interface{})
+
+				jobSettings := jobTyped["settings"].(map[string]interface{})
+				jobTyped["num_threads"] = jobSettings["threads"].(float64)
+				jobTyped["target_name"] = jobSettings["target_name"].(string)
+
+				jobExecution := jobTyped["execution"].(map[string]interface{})
+				jobTyped["timeout_seconds"] = jobExecution["timeout_seconds"].(float64)
+
+				jobSchedule := jobTyped["schedule"].(map[string]interface{})
+				jobScheduleDate := jobSchedule["date"].(map[string]interface{})
+				jobTyped["schedule_type"] = jobScheduleDate["type"].(string)
+
+				if jobTyped["schedule_type"] == "custom_cron" {
+					jobTyped["schedule_cron"] = jobScheduleDate["cron"].(string)
+				}
+				if jobTyped["schedule_type"] == "days_of_week" {
+					jobTyped["schedule_days"] = jobScheduleDate["days"]
+
+					jobScheduleTime := jobSchedule["time"].(map[string]interface{})
+					if jobScheduleTime["type"].(string) == "at_exact_hours" {
+						jobTyped["schedule_hours"] = jobScheduleTime["hours"]
+					}
+
+					// TODO: Handle the case when this is every x hours
+				}
+
+				jobTriggers := jobTyped["triggers"].(map[string]interface{})
+
+				triggers := map[string]interface{}{
+					"github_webhook":       jobTriggers["github_webhook"].(bool),
+					"git_provider_webhook": jobTriggers["git_provider_webhook"].(bool),
+					"custom_branch_only":   false,
+					"schedule":             jobTriggers["schedule"].(bool),
+				}
+
+				jobTyped["triggers"] = triggers
+
+				jsonStructData = append(jsonStructData, jobTyped)
+			}
+
+			resourceCount = len(jsonStructData)
+
+		case "dbtcloud_environment":
+
+			listEnvironments := dbtcloud.GetEnvironments(config)
+
+			for _, environment := range listEnvironments {
+				environmentsTyped := environment.(map[string]interface{})
+
+				// handle the case when credentials_id is not a float becasuse it is null
+				if credentials_id, ok := environmentsTyped["credentials_id"].(float64); ok {
+					environmentsTyped["credential_id"] = credentials_id
+				}
+
+				jsonStructData = append(jsonStructData, environmentsTyped)
+			}
+
+			resourceCount = len(jsonStructData)
+
+		// case "cloudflare_access_group":
+		// 	jsonPayload, _, err := api.ListAccessGroups(context.Background(), identifier, cloudflare.ListAccessGroupsParams{})
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	resourceCount = len(jsonPayload)
+		// 	m, _ := json.Marshal(jsonPayload)
+		// 	err = json.Unmarshal(m, &jsonStructData)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+		// case "cloudflare_access_identity_provider":
+		// 	jsonPayload, _, err := api.ListAccessIdentityProviders(context.Background(), identifier, cloudflare.ListAccessIdentityProvidersParams{})
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	resourceCount = len(jsonPayload)
+		// 	m, _ := json.Marshal(jsonPayload)
+		// 	err = json.Unmarshal(m, &jsonStructData)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+		// case "cloudflare_access_service_token":
+		// 	jsonPayload, _, err := api.ListAccessServiceTokens(context.Background(), identifier, cloudflare.ListAccessServiceTokensParams{})
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	resourceCount = len(jsonPayload)
+		// 	m, _ := json.Marshal(jsonPayload)
+		// 	err = json.Unmarshal(m, &jsonStructData)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+		// case "cloudflare_access_mutual_tls_certificate":
+		// 	jsonPayload, _, err := api.ListAccessMutualTLSCertificates(context.Background(), identifier, cloudflare.ListAccessMutualTLSCertificatesParams{})
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	resourceCount = len(jsonPayload)
+		// 	m, _ := json.Marshal(jsonPayload)
+		// 	err = json.Unmarshal(m, &jsonStructData)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+		// case "cloudflare_access_rule":
+		// 	if accountID != "" {
+		// 		jsonPayload, err := api.ListAccountAccessRules(context.Background(), accountID, cloudflare.AccessRule{}, 1)
+		// 		if err != nil {
+		// 			log.Fatal(err)
+		// 		}
+
+		// 		resourceCount = len(jsonPayload.Result)
+		// 		m, _ := json.Marshal(jsonPayload.Result)
+		// 		err = json.Unmarshal(m, &jsonStructData)
+		// 		if err != nil {
+		// 			log.Fatal(err)
+		// 		}
+		// 	} else {
+		// 		jsonPayload, err := api.ListZoneAccessRules(context.Background(), zoneID, cloudflare.AccessRule{}, 1)
+		// 		if err != nil {
+		// 			log.Fatal(err)
+		// 		}
+
+		// 		resourceCount = len(jsonPayload.Result)
+		// 		m, _ := json.Marshal(jsonPayload.Result)
+		// 		err = json.Unmarshal(m, &jsonStructData)
+		// 		if err != nil {
+		// 			log.Fatal(err)
+		// 		}
+		// 	}
+		// case "cloudflare_account_member":
+		// 	jsonPayload, _, err := api.AccountMembers(context.Background(), accountID, cloudflare.PaginationOptions{})
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	resourceCount = len(jsonPayload)
+		// 	m, _ := json.Marshal(jsonPayload)
+		// 	err = json.Unmarshal(m, &jsonStructData)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	// remap email and role_ids into the right structure.
+		// 	for i := 0; i < resourceCount; i++ {
+		// 		jsonStructData[i].(map[string]interface{})["email_address"] = jsonStructData[i].(map[string]interface{})["user"].(map[string]interface{})["email"]
+		// 		roleIDs := []string{}
+		// 		for _, role := range jsonStructData[i].(map[string]interface{})["roles"].([]interface{}) {
+		// 			roleIDs = append(roleIDs, role.(map[string]interface{})["id"].(string))
+		// 		}
+		// 		jsonStructData[i].(map[string]interface{})["role_ids"] = roleIDs
+		// 	}
+		// case "cloudflare_argo":
+		// 	jsonPayload := []cloudflare.ArgoFeatureSetting{}
+
+		// 	argoSmartRouting, err := api.ArgoSmartRouting(context.Background(), zoneID)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+		// 	jsonPayload = append(jsonPayload, argoSmartRouting)
+
+		// 	argoTieredCaching, err := api.ArgoTieredCaching(context.Background(), zoneID)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+		// 	jsonPayload = append(jsonPayload, argoTieredCaching)
+
+		// 	resourceCount = 1
+
+		// 	m, _ := json.Marshal(jsonPayload)
+		// 	err = json.Unmarshal(m, &jsonStructData)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	for i, b := range jsonStructData {
+		// 		key := b.(map[string]interface{})["id"].(string)
+		// 		jsonStructData[0].(map[string]interface{})[key] = jsonStructData[i].(map[string]interface{})["value"]
+		// 	}
+		// case "cloudflare_api_shield":
+		// 	jsonPayload := []cloudflare.APIShield{}
+		// 	apiShieldConfig, _, err := api.GetAPIShieldConfiguration(context.Background(), identifier)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+		// 	// the response can contain an empty APIShield struct. Verify we have data before we attempt to do anything
+		// 	jsonPayload = append(jsonPayload, apiShieldConfig)
+
+		// 	resourceCount = len(jsonPayload)
+		// 	m, _ := json.Marshal(jsonPayload)
+		// 	err = json.Unmarshal(m, &jsonStructData)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	// this is only every a 1:1 so we can just verify if the 0th element has they key we expect
+		// 	jsonStructData[0].(map[string]interface{})["id"] = zoneID
+
+		// 	if jsonStructData[0].(map[string]interface{})["auth_id_characteristics"] == nil {
+		// 		// force a no resources return by setting resourceCount to 0
+		// 		resourceCount = 0
+		// 	}
+		// case "cloudflare_user_agent_blocking_rule":
+		// 	page := 1
+		// 	var jsonPayload []cloudflare.UserAgentRule
+		// 	for {
+		// 		res, err := api.ListUserAgentRules(context.Background(), zoneID, page)
+		// 		if err != nil {
+		// 			log.Fatal(err)
+		// 		}
+
+		// 		jsonPayload = append(jsonPayload, res.Result...)
+		// 		res.ResultInfo = res.ResultInfo.Next()
+
+		// 		if res.ResultInfo.Done() {
+		// 			break
+		// 		}
+		// 		page = page + 1
+		// 	}
+
+		// 	resourceCount = len(jsonPayload)
+		// 	m, _ := json.Marshal(jsonPayload)
+		// 	err := json.Unmarshal(m, &jsonStructData)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+		// case "cloudflare_byo_ip_prefix":
+		// 	jsonPayload, err := api.ListPrefixes(context.Background(), accountID)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	resourceCount = len(jsonPayload)
+		// 	m, _ := json.Marshal(jsonPayload)
+		// 	err = json.Unmarshal(m, &jsonStructData)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	// remap ID to prefix_id and advertised to advertisement on the JSON payloads.
+		// 	for i := 0; i < resourceCount; i++ {
+		// 		jsonStructData[i].(map[string]interface{})["prefix_id"] = jsonStructData[i].(map[string]interface{})["id"]
+
+		// 		if jsonStructData[i].(map[string]interface{})["advertised"].(bool) {
+		// 			jsonStructData[i].(map[string]interface{})["advertisement"] = "on"
+		// 		} else {
+		// 			jsonStructData[i].(map[string]interface{})["advertisement"] = "off"
+		// 		}
+		// 	}
+		// case "cloudflare_certificate_pack":
+		// 	jsonPayload, err := api.ListCertificatePacks(context.Background(), zoneID)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	var customerManagedCertificates []cloudflare.CertificatePack
+		// 	for _, r := range jsonPayload {
+		// 		if r.Type != "universal" {
+		// 			customerManagedCertificates = append(customerManagedCertificates, r)
+		// 		}
+		// 	}
+		// 	jsonPayload = customerManagedCertificates
+
+		// 	resourceCount = len(jsonPayload)
+		// 	m, _ := json.Marshal(jsonPayload)
+		// 	err = json.Unmarshal(m, &jsonStructData)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+		// case "cloudflare_custom_pages":
+		// 	if accountID != "" {
+		// 		acc := cloudflare.CustomPageOptions{AccountID: accountID}
+		// 		jsonPayload, err := api.CustomPages(context.Background(), &acc)
+		// 		if err != nil {
+		// 			log.Fatal(err)
+		// 		}
+
+		// 		resourceCount = len(jsonPayload)
+		// 		m, _ := json.Marshal(jsonPayload)
+		// 		err = json.Unmarshal(m, &jsonStructData)
+		// 		if err != nil {
+		// 			log.Fatal(err)
+		// 		}
+		// 	} else {
+		// 		zo := cloudflare.CustomPageOptions{ZoneID: zoneID}
+		// 		jsonPayload, err := api.CustomPages(context.Background(), &zo)
+		// 		if err != nil {
+		// 			log.Fatal(err)
+		// 		}
+
+		// 		resourceCount = len(jsonPayload)
+		// 		m, _ := json.Marshal(jsonPayload)
+		// 		err = json.Unmarshal(m, &jsonStructData)
+		// 		if err != nil {
+		// 			log.Fatal(err)
+		// 		}
+		// 	}
+
+		// 	var newJsonStructData []interface{}
+		// 	// remap ID to the "type" field
+		// 	for i := 0; i < resourceCount; i++ {
+		// 		jsonStructData[i].(map[string]interface{})["type"] = jsonStructData[i].(map[string]interface{})["id"]
+		// 		// we only want repsonses that have 'url'
+		// 		if jsonStructData[i].(map[string]interface{})["url"] != nil {
+		// 			newJsonStructData = append(newJsonStructData, jsonStructData[i])
+		// 		}
+		// 	}
+		// 	jsonStructData = newJsonStructData
+		// 	resourceCount = len(jsonStructData)
+
+		// case "cloudflare_custom_hostname_fallback_origin":
+		// 	var jsonPayload []cloudflare.CustomHostnameFallbackOrigin
+		// 	apiCall, err := api.CustomHostnameFallbackOrigin(context.Background(), zoneID)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	if apiCall.Origin != "" {
+		// 		resourceCount = 1
+		// 		jsonPayload = append(jsonPayload, apiCall)
+		// 	}
+
+		// 	m, _ := json.Marshal(jsonPayload)
+		// 	err = json.Unmarshal(m, &jsonStructData)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	for i := 0; i < resourceCount; i++ {
+		// 		jsonStructData[i].(map[string]interface{})["id"] = sanitiseTerraformResourceName(jsonStructData[i].(map[string]interface{})["origin"].(string))
+		// 		jsonStructData[i].(map[string]interface{})["status"] = nil
+		// 	}
+		// case "cloudflare_filter":
+		// 	jsonPayload, _, err := api.Filters(context.Background(), identifier, cloudflare.FilterListParams{})
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	resourceCount = len(jsonPayload)
+		// 	m, _ := json.Marshal(jsonPayload)
+		// 	err = json.Unmarshal(m, &jsonStructData)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+		// case "cloudflare_firewall_rule":
+		// 	jsonPayload, _, err := api.FirewallRules(context.Background(), identifier, cloudflare.FirewallRuleListParams{})
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	resourceCount = len(jsonPayload)
+		// 	m, _ := json.Marshal(jsonPayload)
+		// 	err = json.Unmarshal(m, &jsonStructData)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	// remap Filter.ID to `filter_id` on the JSON payloads.
+		// 	for i := 0; i < resourceCount; i++ {
+		// 		jsonStructData[i].(map[string]interface{})["filter_id"] = jsonStructData[i].(map[string]interface{})["filter"].(map[string]interface{})["id"]
+		// 	}
+		// case "cloudflare_custom_hostname":
+		// 	jsonPayload, _, err := api.CustomHostnames(context.Background(), zoneID, 1, cloudflare.CustomHostname{})
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	resourceCount = len(jsonPayload)
+		// 	m, _ := json.Marshal(jsonPayload)
+		// 	err = json.Unmarshal(m, &jsonStructData)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	for i := 0; i < resourceCount; i++ {
+		// 		jsonStructData[i].(map[string]interface{})["ssl"].(map[string]interface{})["validation_errors"] = nil
+		// 	}
+		// case "cloudflare_custom_ssl":
+		// 	jsonPayload, err := api.ListSSL(context.Background(), zoneID)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	resourceCount = len(jsonPayload)
+		// 	m, _ := json.Marshal(jsonPayload)
+		// 	err = json.Unmarshal(m, &jsonStructData)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+		// case "cloudflare_healthcheck":
+		// 	jsonPayload, err := api.Healthchecks(context.Background(), zoneID)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	resourceCount = len(jsonPayload)
+		// 	m, _ := json.Marshal(jsonPayload)
+		// 	err = json.Unmarshal(m, &jsonStructData)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+		// case "cloudflare_load_balancer":
+		// 	jsonPayload, err := api.ListLoadBalancers(context.Background(), identifier, cloudflare.ListLoadBalancerParams{})
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	resourceCount = len(jsonPayload)
+		// 	m, _ := json.Marshal(jsonPayload)
+		// 	err = json.Unmarshal(m, &jsonStructData)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	for i := 0; i < resourceCount; i++ {
+		// 		jsonStructData[i].(map[string]interface{})["default_pool_ids"] = jsonStructData[i].(map[string]interface{})["default_pools"]
+		// 		jsonStructData[i].(map[string]interface{})["fallback_pool_id"] = jsonStructData[i].(map[string]interface{})["fallback_pool"]
+
+		// 		if jsonStructData[i].(map[string]interface{})["country_pools"] != nil {
+		// 			original := jsonStructData[i].(map[string]interface{})["country_pools"]
+		// 			jsonStructData[i].(map[string]interface{})["country_pools"] = []interface{}{}
+
+		// 			for country, popIDs := range original.(map[string]interface{}) {
+		// 				jsonStructData[i].(map[string]interface{})["country_pools"] = append(jsonStructData[i].(map[string]interface{})["country_pools"].([]interface{}), map[string]interface{}{"country": country, "pool_ids": popIDs})
+		// 			}
+		// 		}
+
+		// 		if jsonStructData[i].(map[string]interface{})["region_pools"] != nil {
+		// 			original := jsonStructData[i].(map[string]interface{})["region_pools"]
+		// 			jsonStructData[i].(map[string]interface{})["region_pools"] = []interface{}{}
+
+		// 			for region, popIDs := range original.(map[string]interface{}) {
+		// 				jsonStructData[i].(map[string]interface{})["region_pools"] = append(jsonStructData[i].(map[string]interface{})["region_pools"].([]interface{}), map[string]interface{}{"region": region, "pool_ids": popIDs})
+		// 			}
+		// 		}
+
+		// 		if jsonStructData[i].(map[string]interface{})["pop_pools"] != nil {
+		// 			original := jsonStructData[i].(map[string]interface{})["pop_pools"]
+		// 			jsonStructData[i].(map[string]interface{})["pop_pools"] = []interface{}{}
+
+		// 			for pop, popIDs := range original.(map[string]interface{}) {
+		// 				jsonStructData[i].(map[string]interface{})["pop_pools"] = append(jsonStructData[i].(map[string]interface{})["pop_pools"].([]interface{}), map[string]interface{}{"pop": pop, "pool_ids": popIDs})
+		// 			}
+		// 		}
+		// 	}
+
+		// case "cloudflare_load_balancer_pool":
+		// 	jsonPayload, err := api.ListLoadBalancerPools(context.Background(), identifier, cloudflare.ListLoadBalancerPoolParams{})
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	resourceCount = len(jsonPayload)
+		// 	m, _ := json.Marshal(jsonPayload)
+		// 	err = json.Unmarshal(m, &jsonStructData)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	for i := 0; i < resourceCount; i++ {
+		// 		for originCounter := range jsonStructData[i].(map[string]interface{})["origins"].([]interface{}) {
+		// 			if jsonStructData[i].(map[string]interface{})["origins"].([]interface{})[originCounter].(map[string]interface{})["header"] != nil {
+		// 				jsonStructData[i].(map[string]interface{})["origins"].([]interface{})[originCounter].(map[string]interface{})["header"].(map[string]interface{})["header"] = "Host"
+		// 				jsonStructData[i].(map[string]interface{})["origins"].([]interface{})[originCounter].(map[string]interface{})["header"].(map[string]interface{})["values"] = jsonStructData[i].(map[string]interface{})["origins"].([]interface{})[originCounter].(map[string]interface{})["header"].(map[string]interface{})["Host"]
+		// 			}
+		// 		}
+		// 	}
+		// case "cloudflare_load_balancer_monitor":
+		// 	jsonPayload, err := api.ListLoadBalancerMonitors(context.Background(), identifier, cloudflare.ListLoadBalancerMonitorParams{})
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	resourceCount = len(jsonPayload)
+		// 	m, _ := json.Marshal(jsonPayload)
+		// 	err = json.Unmarshal(m, &jsonStructData)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+		// case "cloudflare_logpush_job":
+		// 	jsonPayload, err := api.ListLogpushJobs(context.Background(), identifier, cloudflare.ListLogpushJobsParams{})
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	resourceCount = len(jsonPayload)
+		// 	m, _ := json.Marshal(jsonPayload)
+		// 	err = json.Unmarshal(m, &jsonStructData)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	for i := 0; i < resourceCount; i++ {
+		// 		// Workaround for LogpushJob.Filter being empty with a custom
+		// 		// marshaler and returning `{"where":{}}` as the "empty" value.
+		// 		if jsonStructData[i].(map[string]interface{})["filter"] == `{"where":{}}` {
+		// 			jsonStructData[i].(map[string]interface{})["filter"] = nil
+		// 		}
+		// 	}
+		// case "cloudflare_managed_headers":
+		// 	// only grab the enabled headers
+		// 	jsonPayload, err := api.ListZoneManagedHeaders(context.Background(), cloudflare.ResourceIdentifier(zoneID), cloudflare.ListManagedHeadersParams{Status: "enabled"})
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	var managedHeaders []cloudflare.ManagedHeaders
+		// 	managedHeaders = append(managedHeaders, jsonPayload)
+
+		// 	resourceCount = len(managedHeaders)
+		// 	m, _ := json.Marshal(managedHeaders)
+		// 	err = json.Unmarshal(m, &jsonStructData)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	for i := 0; i < resourceCount; i++ {
+		// 		jsonStructData[i].(map[string]interface{})["id"] = zoneID
+		// 	}
+		// case "cloudflare_origin_ca_certificate":
+		// 	jsonPayload, err := api.ListOriginCACertificates(context.Background(), cloudflare.ListOriginCertificatesParams{ZoneID: zoneID})
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	resourceCount = len(jsonPayload)
+		// 	m, _ := json.Marshal(jsonPayload)
+		// 	err = json.Unmarshal(m, &jsonStructData)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+		// case "cloudflare_page_rule":
+		// 	jsonPayload, err := api.ListPageRules(context.Background(), zoneID)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	resourceCount = len(jsonPayload)
+		// 	m, _ := json.Marshal(jsonPayload)
+		// 	err = json.Unmarshal(m, &jsonStructData)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	for i := 0; i < resourceCount; i++ {
+		// 		jsonStructData[i].(map[string]interface{})["target"] = jsonStructData[i].(map[string]interface{})["targets"].([]interface{})[0].(map[string]interface{})["constraint"].(map[string]interface{})["value"]
+		// 		jsonStructData[i].(map[string]interface{})["actions"] = flattenAttrMap(jsonStructData[i].(map[string]interface{})["actions"].([]interface{}))
+
+		// 		// Have to remap the cache_ttl_by_status to conform to Terraform's more human-friendly structure.
+		// 		if cache, ok := jsonStructData[i].(map[string]interface{})["actions"].(map[string]interface{})["cache_ttl_by_status"].(map[string]interface{}); ok {
+		// 			cache_ttl_by_status := []map[string]interface{}{}
+
+		// 			for codes, ttl := range cache {
+		// 				if ttl == "no-cache" {
+		// 					ttl = 0
+		// 				} else if ttl == "no-store" {
+		// 					ttl = -1
+		// 				}
+		// 				elem := map[string]interface{}{
+		// 					"codes": codes,
+		// 					"ttl":   ttl,
+		// 				}
+
+		// 				cache_ttl_by_status = append(cache_ttl_by_status, elem)
+		// 			}
+
+		// 			sort.SliceStable(cache_ttl_by_status, func(i int, j int) bool {
+		// 				return cache_ttl_by_status[i]["codes"].(string) < cache_ttl_by_status[j]["codes"].(string)
+		// 			})
+
+		// 			jsonStructData[i].(map[string]interface{})["actions"].(map[string]interface{})["cache_ttl_by_status"] = cache_ttl_by_status
+		// 		}
+
+		// 		// Remap cache_key_fields.query_string.include & .exclude wildcards (not in an array) to the appropriate "ignore" field value in Terraform.
+		// 		if c, ok := jsonStructData[i].(map[string]interface{})["actions"].(map[string]interface{})["cache_key_fields"].(map[string]interface{}); ok {
+		// 			if s, sok := c["query_string"].(map[string]interface{})["include"].(string); sok && s == "*" {
+		// 				jsonStructData[i].(map[string]interface{})["actions"].(map[string]interface{})["cache_key_fields"].(map[string]interface{})["query_string"].(map[string]interface{})["include"] = nil
+		// 				jsonStructData[i].(map[string]interface{})["actions"].(map[string]interface{})["cache_key_fields"].(map[string]interface{})["query_string"].(map[string]interface{})["ignore"] = false
+		// 			}
+		// 			if s, sok := c["query_string"].(map[string]interface{})["exclude"].(string); sok && s == "*" {
+		// 				jsonStructData[i].(map[string]interface{})["actions"].(map[string]interface{})["cache_key_fields"].(map[string]interface{})["query_string"].(map[string]interface{})["exclude"] = nil
+		// 				jsonStructData[i].(map[string]interface{})["actions"].(map[string]interface{})["cache_key_fields"].(map[string]interface{})["query_string"].(map[string]interface{})["ignore"] = true
+		// 			}
+		// 		}
+		// 	}
+		// case "cloudflare_rate_limit":
+		// 	jsonPayload, err := api.ListAllRateLimits(context.Background(), zoneID)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	resourceCount = len(jsonPayload)
+		// 	m, _ := json.Marshal(jsonPayload)
+		// 	err = json.Unmarshal(m, &jsonStructData)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	for i := 0; i < resourceCount; i++ {
+		// 		var bypassItems []string
+
+		// 		// Remap match.request.url to match.request.url_pattern
+		// 		jsonStructData[i].(map[string]interface{})["match"].(map[string]interface{})["request"].(map[string]interface{})["url_pattern"] = jsonStructData[i].(map[string]interface{})["match"].(map[string]interface{})["request"].(map[string]interface{})["url"]
+
+		// 		// Remap bypass to bypass_url_patterns
+		// 		if jsonStructData[i].(map[string]interface{})["bypass"] != nil {
+		// 			for _, item := range jsonStructData[i].(map[string]interface{})["bypass"].([]interface{}) {
+		// 				bypassItems = append(bypassItems, item.(map[string]interface{})["value"].(string))
+		// 			}
+		// 			jsonStructData[i].(map[string]interface{})["bypass_url_patterns"] = bypassItems
+		// 		}
+
+		// 		// Remap match.response.status to match.response.statuses
+		// 		jsonStructData[i].(map[string]interface{})["match"].(map[string]interface{})["response"].(map[string]interface{})["statuses"] = jsonStructData[i].(map[string]interface{})["match"].(map[string]interface{})["response"].(map[string]interface{})["status"]
+		// 	}
+
+		// case "cloudflare_record":
+		// 	simpleDNSTypes := []string{"A", "AAAA", "CNAME", "TXT", "MX", "NS", "PTR"}
+		// 	jsonPayload, _, err := api.ListDNSRecords(context.Background(), identifier, cloudflare.ListDNSRecordsParams{})
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	resourceCount = len(jsonPayload)
+		// 	m, _ := json.Marshal(jsonPayload)
+		// 	err = json.Unmarshal(m, &jsonStructData)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	for i := 0; i < resourceCount; i++ {
+		// 		// Drop the proxiable values as they are not usable
+		// 		jsonStructData[i].(map[string]interface{})["proxiable"] = nil
+
+		// 		if jsonStructData[i].(map[string]interface{})["name"].(string) != jsonStructData[i].(map[string]interface{})["zone_name"].(string) {
+		// 			jsonStructData[i].(map[string]interface{})["name"] = strings.ReplaceAll(jsonStructData[i].(map[string]interface{})["name"].(string), "."+jsonStructData[i].(map[string]interface{})["zone_name"].(string), "")
+		// 		}
+
+		// 		// We only want to remap the "value" to the "content" value for simple
+		// 		// DNS types as the aggregate types use `data` for the structure.
+		// 		if contains(simpleDNSTypes, jsonStructData[i].(map[string]interface{})["type"].(string)) {
+		// 			jsonStructData[i].(map[string]interface{})["value"] = jsonStructData[i].(map[string]interface{})["content"]
+		// 		}
+		// 	}
+		// case "cloudflare_ruleset":
+		// 	jsonPayload, err := api.ListRulesets(context.Background(), identifier, cloudflare.ListRulesetsParams{})
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	var nonManagedRules []cloudflare.Ruleset
+
+		// 	// A little annoying but makes more sense doing it this way. Only append
+		// 	// the non-managed rules to the usable nonManagedRules variable instead
+		// 	// of attempting to delete from an existing slice and just reassign.
+		// 	for _, r := range jsonPayload {
+		// 		if r.Kind != string(cloudflare.RulesetKindManaged) {
+		// 			nonManagedRules = append(nonManagedRules, r)
+		// 		}
+		// 	}
+		// 	jsonPayload = nonManagedRules
+		// 	ruleHeaders := map[string][]map[string]interface{}{}
+		// 	for i, rule := range nonManagedRules {
+		// 		ruleset, _ := api.GetRuleset(context.Background(), identifier, rule.ID)
+		// 		jsonPayload[i].Rules = ruleset.Rules
+
+		// 		if ruleset.Rules != nil {
+		// 			for _, rule := range ruleset.Rules {
+		// 				if rule.ActionParameters != nil && rule.ActionParameters.Headers != nil {
+		// 					// Sort the headers to have deterministic config output
+		// 					keys := make([]string, 0, len(rule.ActionParameters.Headers))
+		// 					for k := range rule.ActionParameters.Headers {
+		// 						keys = append(keys, k)
+		// 					}
+		// 					sort.Strings(keys)
+
+		// 					// The structure of the API response for headers differs from the
+		// 					// structure terraform requires. So we collect all the headers
+		// 					// indexed by rule.ID to massage the jsonStructData later
+		// 					for _, headerName := range keys {
+		// 						header := map[string]interface{}{
+		// 							"name":       headerName,
+		// 							"operation":  rule.ActionParameters.Headers[headerName].Operation,
+		// 							"expression": rule.ActionParameters.Headers[headerName].Expression,
+		// 							"value":      rule.ActionParameters.Headers[headerName].Value,
+		// 						}
+		// 						ruleHeaders[rule.ID] = append(ruleHeaders[rule.ID], header)
+		// 					}
+		// 				}
+		// 			}
+		// 		}
+		// 	}
+
+		// 	sort.Slice(jsonPayload, func(i, j int) bool {
+		// 		return jsonPayload[i].Phase < jsonPayload[j].Phase
+		// 	})
+
+		// 	resourceCount = len(jsonPayload)
+		// 	m, _ := json.Marshal(jsonPayload)
+		// 	err = json.Unmarshal(m, &jsonStructData)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	// Make the rules have the correct header structure
+		// 	for i, ruleset := range jsonStructData {
+		// 		if ruleset.(map[string]interface{})["rules"] != nil {
+		// 			for j, rule := range ruleset.(map[string]interface{})["rules"].([]interface{}) {
+		// 				ID := rule.(map[string]interface{})["id"]
+		// 				if ID != nil {
+		// 					headers, exists := ruleHeaders[ID.(string)]
+		// 					if exists {
+		// 						jsonStructData[i].(map[string]interface{})["rules"].([]interface{})[j].(map[string]interface{})["action_parameters"].(map[string]interface{})["headers"] = headers
+		// 					}
+		// 				}
+		// 			}
+		// 		}
+		// 	}
+
+		// 	// log custom fields specific transformation fields
+		// 	logCustomFieldsTransform := []string{"cookie_fields", "request_fields", "response_fields"}
+
+		// 	for i := 0; i < resourceCount; i++ {
+		// 		rules := jsonStructData[i].(map[string]interface{})["rules"]
+		// 		if rules != nil {
+		// 			for ruleCounter := range rules.([]interface{}) {
+		// 				actionParams := rules.([]interface{})[ruleCounter].(map[string]interface{})["action_parameters"]
+		// 				if actionParams != nil {
+		// 					// check for log custom fields that need to be transformed
+		// 					for _, logCustomFields := range logCustomFieldsTransform {
+		// 						// check if the field exists and make sure it has at least one element
+		// 						if actionParams.(map[string]interface{})[logCustomFields] != nil && len(actionParams.(map[string]interface{})[logCustomFields].([]interface{})) > 0 {
+		// 							// Create a new list to store the data in.
+		// 							var newLogCustomFields []interface{}
+		// 							// iterate over each of the keys and add them to a generic list
+		// 							for logCustomFieldsCounter := range actionParams.(map[string]interface{})[logCustomFields].([]interface{}) {
+		// 								newLogCustomFields = append(newLogCustomFields, actionParams.(map[string]interface{})[logCustomFields].([]interface{})[logCustomFieldsCounter].(map[string]interface{})["name"])
+		// 							}
+		// 							actionParams.(map[string]interface{})[logCustomFields] = newLogCustomFields
+		// 						}
+		// 					}
+
+		// 					// check if our ruleset is of action 'skip'
+		// 					if rules.([]interface{})[ruleCounter].(map[string]interface{})["action"] == "skip" {
+		// 						for rule := range actionParams.(map[string]interface{}) {
+		// 							// "rules" is the only map[string][]string we need to remap. The others are all []string and are handled naturally.
+		// 							if rule == "rules" {
+		// 								for key, value := range actionParams.(map[string]interface{})[rule].(map[string]interface{}) {
+		// 									var rulesList []string
+		// 									for _, val := range value.([]interface{}) {
+		// 										rulesList = append(rulesList, val.(string))
+		// 									}
+		// 									actionParams.(map[string]interface{})[rule].(map[string]interface{})[key] = strings.Join(rulesList, ",")
+		// 								}
+		// 							}
+		// 						}
+		// 					}
+
+		// 					// Cache Rules transformation
+		// 					if jsonStructData[i].(map[string]interface{})["phase"] == "http_request_cache_settings" {
+		// 						if ck, ok := rules.([]interface{})[ruleCounter].(map[string]interface{})["action_parameters"].(map[string]interface{})["cache_key"]; ok {
+		// 							if c, cok := ck.(map[string]interface{})["custom_key"]; cok {
+		// 								if qs, qok := c.(map[string]interface{})["query_string"]; qok {
+		// 									if s, sok := qs.(map[string]interface{})["include"]; sok && s == "*" {
+		// 										rules.([]interface{})[ruleCounter].(map[string]interface{})["action_parameters"].(map[string]interface{})["cache_key"].(map[string]interface{})["custom_key"].(map[string]interface{})["query_string"].(map[string]interface{})["include"] = []interface{}{"*"}
+		// 									}
+		// 									if s, sok := qs.(map[string]interface{})["exclude"]; sok && s == "*" {
+		// 										rules.([]interface{})[ruleCounter].(map[string]interface{})["action_parameters"].(map[string]interface{})["cache_key"].(map[string]interface{})["custom_key"].(map[string]interface{})["query_string"].(map[string]interface{})["exclude"] = []interface{}{"*"}
+		// 									}
+		// 								}
+		// 							}
+		// 						}
+		// 					}
+		// 				}
+		// 			}
+		// 		}
+		// 	}
+		// case "cloudflare_spectrum_application":
+		// 	jsonPayload, err := api.SpectrumApplications(context.Background(), zoneID)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	resourceCount = len(jsonPayload)
+		// 	m, _ := json.Marshal(jsonPayload)
+		// 	err = json.Unmarshal(m, &jsonStructData)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+		// case "cloudflare_tunnel":
+		// 	log.Debug("only requesting the first 1000 active Cloudflare Tunnels due to the service not providing correct pagination responses")
+		// 	jsonPayload, _, err := api.ListTunnels(
+		// 		context.Background(),
+		// 		cloudflare.AccountIdentifier(accountID),
+		// 		cloudflare.TunnelListParams{
+		// 			IsDeleted: cloudflare.BoolPtr(false),
+		// 			ResultInfo: cloudflare.ResultInfo{
+		// 				PerPage: 1000,
+		// 				Page:    1,
+		// 			},
+		// 		})
+
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	resourceCount = len(jsonPayload)
+		// 	m, _ := json.Marshal(jsonPayload)
+		// 	err = json.Unmarshal(m, &jsonStructData)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	for i := 0; i < resourceCount; i++ {
+		// 		secret, err := api.GetTunnelToken(
+		// 			context.Background(),
+		// 			cloudflare.AccountIdentifier(accountID),
+		// 			jsonStructData[i].(map[string]interface{})["id"].(string),
+		// 		)
+		// 		if err != nil {
+		// 			log.Fatal(err)
+		// 		}
+		// 		jsonStructData[i].(map[string]interface{})["secret"] = secret
+		// 		jsonStructData[i].(map[string]interface{})["account_id"] = accountID
+
+		// 		jsonStructData[i].(map[string]interface{})["connections"] = nil
+		// 	}
+		// case "cloudflare_turnstile_widget":
+		// 	jsonPayload, _, err := api.ListTurnstileWidgets(context.Background(), identifier, cloudflare.ListTurnstileWidgetParams{})
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	resourceCount = len(jsonPayload)
+		// 	m, _ := json.Marshal(jsonPayload)
+		// 	err = json.Unmarshal(m, &jsonStructData)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	for i := 0; i < resourceCount; i++ {
+		// 		jsonStructData[i].(map[string]interface{})["id"] = jsonStructData[i].(map[string]interface{})["sitekey"]
+		// 	}
+		// case "cloudflare_url_normalization_settings":
+		// 	jsonPayload, err := api.URLNormalizationSettings(context.Background(), &cloudflare.ResourceContainer{Identifier: zoneID, Level: cloudflare.ZoneRouteLevel})
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+		// 	var newJsonPayload []interface{}
+		// 	newJsonPayload = append(newJsonPayload, jsonPayload)
+		// 	resourceCount = len(newJsonPayload)
+		// 	m, _ := json.Marshal(newJsonPayload)
+		// 	err = json.Unmarshal(m, &jsonStructData)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	// this is only every a 1:1 so we can just verify if the 0th element has they key we expect
+		// 	jsonStructData[0].(map[string]interface{})["id"] = zoneID
+		// case "cloudflare_waiting_room":
+		// 	jsonPayload, err := api.ListWaitingRooms(context.Background(), zoneID)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+		// 	resourceCount = len(jsonPayload)
+		// 	m, _ := json.Marshal(jsonPayload)
+		// 	err = json.Unmarshal(m, &jsonStructData)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+		// case "cloudflare_workers_kv_namespace":
+		// 	jsonPayload, _, err := api.ListWorkersKVNamespaces(context.Background(), identifier, cloudflare.ListWorkersKVNamespacesParams{})
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+		// 	resourceCount = len(jsonPayload)
+		// 	m, _ := json.Marshal(jsonPayload)
+		// 	err = json.Unmarshal(m, &jsonStructData)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+		// case "cloudflare_worker_route":
+		// 	jsonPayload, err := api.ListWorkerRoutes(context.Background(), identifier, cloudflare.ListWorkerRoutesParams{})
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+		// 	resourceCount = len(jsonPayload.Routes)
+		// 	m, _ := json.Marshal(jsonPayload.Routes)
+		// 	err = json.Unmarshal(m, &jsonStructData)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	// remap "script_name" to the "script" value.
+		// 	for i := 0; i < resourceCount; i++ {
+		// 		jsonStructData[i].(map[string]interface{})["script_name"] = jsonStructData[i].(map[string]interface{})["script"]
+		// 	}
+		// case "cloudflare_zone":
+		// 	jsonPayload, err := api.ListZones(context.Background())
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	resourceCount = len(jsonPayload)
+		// 	m, _ := json.Marshal(jsonPayload)
+		// 	err = json.Unmarshal(m, &jsonStructData)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	// - remap "zone" to the "name" value
+		// 	// - remap "plan" to "legacy_id" value
+		// 	// - drop meta and name_servers
+		// 	// - pull in the account_id field
+		// 	for i := 0; i < resourceCount; i++ {
+		// 		jsonStructData[i].(map[string]interface{})["zone"] = jsonStructData[i].(map[string]interface{})["name"]
+		// 		jsonStructData[i].(map[string]interface{})["plan"] = jsonStructData[i].(map[string]interface{})["plan"].(map[string]interface{})["legacy_id"].(string)
+		// 		jsonStructData[i].(map[string]interface{})["meta"] = nil
+		// 		jsonStructData[i].(map[string]interface{})["name_servers"] = nil
+		// 		jsonStructData[i].(map[string]interface{})["status"] = nil
+		// 		jsonStructData[i].(map[string]interface{})["account_id"] = jsonStructData[i].(map[string]interface{})["account"].(map[string]interface{})["id"].(string)
+		// 	}
+		// case "cloudflare_zone_lockdown":
+		// 	jsonPayload, _, err := api.ListZoneLockdowns(context.Background(), identifier, cloudflare.LockdownListParams{})
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	resourceCount = len(jsonPayload)
+		// 	m, _ := json.Marshal(jsonPayload)
+		// 	err = json.Unmarshal(m, &jsonStructData)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// case "cloudflare_zone_settings_override":
+		// 	jsonPayload, err := api.ZoneSettings(context.Background(), zoneID)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	resourceCount = 1
+		// 	m, _ := json.Marshal(jsonPayload.Result)
+		// 	err = json.Unmarshal(m, &jsonStructData)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	zoneSettingsStruct := make(map[string]interface{})
+		// 	for _, data := range jsonStructData {
+		// 		keyName := data.(map[string]interface{})["id"].(string)
+		// 		value := data.(map[string]interface{})["value"]
+		// 		zoneSettingsStruct[keyName] = value
+		// 	}
+
+		// 	// Remap all settings under "settings" block as well as some of the
+		// 	// attributes that are not 1:1 with the API.
+		// 	for i := 0; i < resourceCount; i++ {
+		// 		jsonStructData[i].(map[string]interface{})["id"] = zoneID
+		// 		jsonStructData[i].(map[string]interface{})["settings"] = zoneSettingsStruct
+
+		// 		// zero RTT
+		// 		jsonStructData[i].(map[string]interface{})["settings"].(map[string]interface{})["zero_rtt"] = jsonStructData[i].(map[string]interface{})["settings"].(map[string]interface{})["0rtt"]
+
+		// 		// Mobile subdomain redirects
+		// 		if jsonStructData[i].(map[string]interface{})["settings"].(map[string]interface{})["mobile_redirect"].(map[string]interface{})["status"] == "off" {
+		// 			jsonStructData[i].(map[string]interface{})["settings"].(map[string]interface{})["mobile_redirect"] = nil
+		// 		}
+
+		// 		// HSTS
+		// 		jsonStructData[i].(map[string]interface{})["settings"].(map[string]interface{})["security_header"].(map[string]interface{})["enabled"] = jsonStructData[i].(map[string]interface{})["settings"].(map[string]interface{})["security_header"].(map[string]interface{})["strict_transport_security"].(map[string]interface{})["enabled"]
+		// 		jsonStructData[i].(map[string]interface{})["settings"].(map[string]interface{})["security_header"].(map[string]interface{})["include_subdomains"] = jsonStructData[i].(map[string]interface{})["settings"].(map[string]interface{})["security_header"].(map[string]interface{})["strict_transport_security"].(map[string]interface{})["include_subdomains"]
+		// 		jsonStructData[i].(map[string]interface{})["settings"].(map[string]interface{})["security_header"].(map[string]interface{})["max_age"] = jsonStructData[i].(map[string]interface{})["settings"].(map[string]interface{})["security_header"].(map[string]interface{})["strict_transport_security"].(map[string]interface{})["max_age"]
+		// 		jsonStructData[i].(map[string]interface{})["settings"].(map[string]interface{})["security_header"].(map[string]interface{})["preload"] = jsonStructData[i].(map[string]interface{})["settings"].(map[string]interface{})["security_header"].(map[string]interface{})["strict_transport_security"].(map[string]interface{})["preload"]
+		// 		jsonStructData[i].(map[string]interface{})["settings"].(map[string]interface{})["security_header"].(map[string]interface{})["nosniff"] = jsonStructData[i].(map[string]interface{})["settings"].(map[string]interface{})["security_header"].(map[string]interface{})["strict_transport_security"].(map[string]interface{})["nosniff"]
+
+		// 		// tls_1_2_only is deprecated in favour of min_tls
+		// 		jsonStructData[i].(map[string]interface{})["settings"].(map[string]interface{})["tls_1_2_only"] = nil
+		// 	}
+		// case "cloudflare_tiered_cache":
+		// 	tieredCache, err := api.GetTieredCache(context.Background(), &cloudflare.ResourceContainer{Identifier: zoneID})
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+		// 	var jsonPayload []cloudflare.TieredCache
+		// 	jsonPayload = append(jsonPayload, tieredCache)
+
+		// 	resourceCount = 1
+		// 	m, _ := json.Marshal(jsonPayload)
+		// 	err = json.Unmarshal(m, &jsonStructData)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+
+		// 	jsonStructData[0].(map[string]interface{})["id"] = zoneID
+		// 	jsonStructData[0].(map[string]interface{})["cache_type"] = tieredCache.Type.String()
+		default:
+			fmt.Fprintf(cmd.OutOrStdout(), "%q is not yet supported for automatic generation", resourceType)
+			return
+		}
+		// If we don't have any resources to generate, just bail out early.
+		if resourceCount == 0 {
+			fmt.Fprint(cmd.OutOrStdout(), "no resources found to generate. Exiting...")
+			return
+		}
+
+		f := hclwrite.NewEmptyFile()
+		rootBody := f.Body()
+		for i := 0; i < resourceCount; i++ {
+			structData := jsonStructData[i].(map[string]interface{})
+
+			resourceID := ""
+			if os.Getenv("USE_STATIC_RESOURCE_IDS") == "true" {
+				resourceID = "terraform_managed_resource"
+			} else {
+				id := ""
+				switch structData["id"].(type) {
+				case float64:
+					id = fmt.Sprintf("%.0f", structData["id"].(float64))
+				default:
+					id = structData["id"].(string)
+				}
+
+				resourceID = fmt.Sprintf("terraform_managed_resource_%s", id)
+			}
+			resource := rootBody.AppendNewBlock("resource", []string{resourceType, resourceID}).Body()
+
+			sortedBlockAttributes := make([]string, 0, len(r.Block.Attributes))
+			for k := range r.Block.Attributes {
+				sortedBlockAttributes = append(sortedBlockAttributes, k)
+			}
+			sort.Strings(sortedBlockAttributes)
+
+			// Block attributes are for any attributes where assignment is involved.
+			for _, attrName := range sortedBlockAttributes {
+				// Don't bother outputting the ID for the resource as that is only for
+				// internal use (such as importing state).
+				if attrName == "id" {
+					continue
+				}
+
+				// No need to output computed attributes that are also not
+				// optional.
+				if r.Block.Attributes[attrName].Computed && !r.Block.Attributes[attrName].Optional {
+					continue
+				}
+				if attrName == "account_id" && accountID != "" {
+					writeAttrLine(attrName, accountID, "", resource)
+					continue
+				}
+
+				ty := r.Block.Attributes[attrName].AttributeType
+				switch {
+				case ty.IsPrimitiveType():
+					switch ty {
+					case cty.String, cty.Bool, cty.Number:
+						writeAttrLine(attrName, structData[attrName], "", resource)
+						delete(structData, attrName)
+					default:
+						log.Debugf("unexpected primitive type %q", ty.FriendlyName())
+					}
+				case ty.IsCollectionType():
+					switch {
+					case ty.IsListType(), ty.IsSetType(), ty.IsMapType():
+						writeAttrLine(attrName, structData[attrName], "", resource)
+						delete(structData, attrName)
+					default:
+						log.Debugf("unexpected collection type %q", ty.FriendlyName())
+					}
+				case ty.IsTupleType():
+					fmt.Printf("tuple found. attrName %s\n", attrName)
+				case ty.IsObjectType():
+					fmt.Printf("object found. attrName %s\n", attrName)
+				default:
+					log.Debugf("attribute %q (attribute type of %q) has not been generated", attrName, ty.FriendlyName())
+				}
+			}
+
+			processBlocks(r.Block, jsonStructData[i].(map[string]interface{}), resource, "")
+			f.Body().AppendNewline()
+		}
+
+		tfOutput := string(hclwrite.Format(f.Bytes()))
+		fmt.Fprint(cmd.OutOrStdout(), tfOutput)
+	}
+}
