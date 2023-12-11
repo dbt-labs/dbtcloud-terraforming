@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	cloudflare "github.com/cloudflare/cloudflare-go"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/sirupsen/logrus"
@@ -19,6 +20,18 @@ import (
 )
 
 var hasNumber = regexp.MustCompile("[0-9]+").MatchString
+
+func strIsResourceType(str string) bool {
+	startsWith := strings.HasPrefix(str, "dbtcloud_")
+
+	dotCount := 0
+	for _, char := range str {
+		if char == '.' {
+			dotCount++
+		}
+	}
+	return startsWith && dotCount == 2
+}
 
 func contains(slice []string, item string) bool {
 	set := make(map[string]struct{}, len(slice))
@@ -302,8 +315,15 @@ func writeAttrLine(key string, value interface{}, parentName string, body *hclwr
 		if parentName == "query" && key == "value" && value == "" {
 			body.SetAttributeValue(key, cty.StringVal(""))
 		}
+		if strIsResourceType(value.(string)) {
 
-		if value != "" {
+			valueStr := value.(string)
+			tokens := []*hclwrite.Token{
+				{Type: hclsyntax.TokenIdent, Bytes: []byte(valueStr)},
+			}
+			body.SetAttributeRaw(key, tokens)
+
+		} else if value != "" {
 			body.SetAttributeValue(key, cty.StringVal(value.(string)))
 		}
 	case int:
