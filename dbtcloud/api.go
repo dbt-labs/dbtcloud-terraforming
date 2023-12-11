@@ -71,3 +71,15 @@ func GetEnvironments(config DbtCloudConfig) []interface{} {
 
 	return GetEndpoint(config, url)
 }
+
+func GetRepositories(config DbtCloudConfig) []interface{} {
+	url := fmt.Sprintf("https://%s/api/v2/accounts/%s/repositories/", config.Hostname, config.AccountID)
+
+	return GetEndpoint(config, url)
+}
+
+func GetGroups(config DbtCloudConfig) []interface{} {
+	url := fmt.Sprintf("https://%s/api/v3/accounts/%s/groups/", config.Hostname, config.AccountID)
+
+	return GetEndpoint(config, url)
+}

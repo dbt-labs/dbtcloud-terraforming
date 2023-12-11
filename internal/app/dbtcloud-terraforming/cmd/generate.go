@@ -11,6 +11,7 @@ import (
 	"github.com/hashicorp/hc-install/releases"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/hashicorp/terraform-exec/tfexec"
+	"github.com/samber/lo"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/zclconf/go-cty/cty"
@@ -19,6 +20,7 @@ import (
 )
 
 var resourceType string
+var linkResources = true
 
 func init() {
 	rootCmd.AddCommand(generateCmd)
@@ -144,6 +146,11 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 				projectTyped := project.(map[string]interface{})
 				projectTyped["project_id"] = projectTyped["id"].(float64)
 				jsonStructData = append(jsonStructData, projectTyped)
+
+				if linkResources {
+					projectID := projectTyped["project_id"]
+					projectTyped["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%0.f.id", projectID)
+				}
 			}
 
 			resourceCount = len(jsonStructData)
@@ -191,6 +198,13 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 
 				jobTyped["triggers"] = triggers
 
+				if linkResources {
+					environmentID := jobTyped["environment_id"].(float64)
+					jobTyped["environment_id"] = fmt.Sprintf("dbtcloud_environnment.terraform_managed_resource_%0.f.environment_id", environmentID)
+
+					projectID := jobTyped["project_id"].(float64)
+					jobTyped["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%0.f.id", projectID)
+				}
 				jsonStructData = append(jsonStructData, jobTyped)
 			}
 
@@ -203,12 +217,88 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 			for _, environment := range listEnvironments {
 				environmentsTyped := environment.(map[string]interface{})
 
-				// handle the case when credentials_id is not a float becasuse it is null
+				// handle the case when credentials_id is not a float because it is null
 				if credentials_id, ok := environmentsTyped["credentials_id"].(float64); ok {
 					environmentsTyped["credential_id"] = credentials_id
 				}
 
 				jsonStructData = append(jsonStructData, environmentsTyped)
+			}
+
+			resourceCount = len(jsonStructData)
+
+		case "dbtcloud_repository":
+
+			listRepositories := dbtcloud.GetRepositories(config)
+
+			for _, repository := range listRepositories {
+				repositoryTyped := repository.(map[string]interface{})
+
+				if linkResources {
+					projectID := repositoryTyped["project_id"]
+					repositoryTyped["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%0.f.id", projectID)
+				}
+				jsonStructData = append(jsonStructData, repositoryTyped)
+			}
+
+			resourceCount = len(jsonStructData)
+
+		case "dbtcloud_project_repository":
+
+			listProjects := dbtcloud.GetProjects(config)
+
+			for _, project := range listProjects {
+				projectTyped := project.(map[string]interface{})
+				projectTyped["project_id"] = projectTyped["id"].(float64)
+				jsonStructData = append(jsonStructData, projectTyped)
+
+				if linkResources {
+					projectID := projectTyped["project_id"]
+					projectTyped["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%0.f.id", projectID)
+
+					repositoryID := projectTyped["repository_id"]
+					projectTyped["repository_id"] = fmt.Sprintf("dbtcloud_repository.terraform_managed_resource_%0.f.repository_id", repositoryID)
+				}
+			}
+
+			resourceCount = len(jsonStructData)
+
+		case "dbtcloud_group":
+
+			listGroups := dbtcloud.GetGroups(config)
+
+			for _, group := range listGroups {
+				groupTyped := group.(map[string]interface{})
+
+				defaultGroups := []string{"Owner", "Member", "Everyone"}
+
+				// we check if the group is one of the default ones
+				_, ok := lo.Find(defaultGroups, func(i string) bool {
+					return i == groupTyped["name"].(string)
+				})
+				// remove the default groups
+				if ok {
+					continue
+				}
+
+				if linkResources {
+
+					groupPermissions, ok := groupTyped["group_permissions"].([]interface{})
+					if !ok {
+						panic("Could not cast group_permissions to []interface{}")
+					}
+					newGroupPermissionsTyped := []map[string]interface{}{}
+					for _, groupPermission := range groupPermissions {
+						groupPermissionTyped := groupPermission.(map[string]interface{})
+						if groupPermissionTyped["all_projects"] == false {
+							groupPermissionTyped["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%0.f.id", groupPermissionTyped["project_id"].(float64))
+						}
+						newGroupPermissionsTyped = append(newGroupPermissionsTyped, groupPermissionTyped)
+					}
+					groupTyped["group_permissions"] = newGroupPermissionsTyped
+
+				}
+				jsonStructData = append(jsonStructData, group)
 			}
 
 			resourceCount = len(jsonStructData)
