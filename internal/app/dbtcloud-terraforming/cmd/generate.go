@@ -130,7 +130,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 		// } else {
 		// 	identifier = cloudflare.ZoneIdentifier(zoneID)
 		// }
-		var jsonStructData []interface{}
+		var jsonStructData []any
 
 		switch resourceType {
 		case "dbtcloud_project":
@@ -143,7 +143,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 			listProjects := dbtcloud.GetProjects(config)
 
 			for _, project := range listProjects {
-				projectTyped := project.(map[string]interface{})
+				projectTyped := project.(map[string]any)
 				projectTyped["project_id"] = projectTyped["id"].(float64)
 				jsonStructData = append(jsonStructData, projectTyped)
 
@@ -160,17 +160,17 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 			jobs := dbtcloud.GetJobs(config)
 
 			for _, job := range jobs {
-				jobTyped := job.(map[string]interface{})
+				jobTyped := job.(map[string]any)
 
-				jobSettings := jobTyped["settings"].(map[string]interface{})
+				jobSettings := jobTyped["settings"].(map[string]any)
 				jobTyped["num_threads"] = jobSettings["threads"].(float64)
 				jobTyped["target_name"] = jobSettings["target_name"].(string)
 
-				jobExecution := jobTyped["execution"].(map[string]interface{})
+				jobExecution := jobTyped["execution"].(map[string]any)
 				jobTyped["timeout_seconds"] = jobExecution["timeout_seconds"].(float64)
 
-				jobSchedule := jobTyped["schedule"].(map[string]interface{})
-				jobScheduleDate := jobSchedule["date"].(map[string]interface{})
+				jobSchedule := jobTyped["schedule"].(map[string]any)
+				jobScheduleDate := jobSchedule["date"].(map[string]any)
 				jobTyped["schedule_type"] = jobScheduleDate["type"].(string)
 
 				if jobTyped["schedule_type"] == "custom_cron" {
@@ -179,7 +179,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 				if jobTyped["schedule_type"] == "days_of_week" {
 					jobTyped["schedule_days"] = jobScheduleDate["days"]
 
-					jobScheduleTime := jobSchedule["time"].(map[string]interface{})
+					jobScheduleTime := jobSchedule["time"].(map[string]any)
 					if jobScheduleTime["type"].(string) == "at_exact_hours" {
 						jobTyped["schedule_hours"] = jobScheduleTime["hours"]
 					}
@@ -187,9 +187,9 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 					// TODO: Handle the case when this is every x hours
 				}
 
-				jobTriggers := jobTyped["triggers"].(map[string]interface{})
+				jobTriggers := jobTyped["triggers"].(map[string]any)
 
-				triggers := map[string]interface{}{
+				triggers := map[string]any{
 					"github_webhook":       jobTriggers["github_webhook"].(bool),
 					"git_provider_webhook": jobTriggers["git_provider_webhook"].(bool),
 					"custom_branch_only":   false,
@@ -215,7 +215,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 			listEnvironments := dbtcloud.GetEnvironments(config)
 
 			for _, environment := range listEnvironments {
-				environmentsTyped := environment.(map[string]interface{})
+				environmentsTyped := environment.(map[string]any)
 
 				// handle the case when credentials_id is not a float because it is null
 				if credentials_id, ok := environmentsTyped["credentials_id"].(float64); ok {
@@ -232,7 +232,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 			listRepositories := dbtcloud.GetRepositories(config)
 
 			for _, repository := range listRepositories {
-				repositoryTyped := repository.(map[string]interface{})
+				repositoryTyped := repository.(map[string]any)
 
 				if linkResources {
 					projectID := repositoryTyped["project_id"]
@@ -248,7 +248,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 			listProjects := dbtcloud.GetProjects(config)
 
 			for _, project := range listProjects {
-				projectTyped := project.(map[string]interface{})
+				projectTyped := project.(map[string]any)
 				projectTyped["project_id"] = projectTyped["id"].(float64)
 				jsonStructData = append(jsonStructData, projectTyped)
 
@@ -268,7 +268,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 			listGroups := dbtcloud.GetGroups(config)
 
 			for _, group := range listGroups {
-				groupTyped := group.(map[string]interface{})
+				groupTyped := group.(map[string]any)
 
 				defaultGroups := []string{"Owner", "Member", "Everyone"}
 
@@ -283,13 +283,13 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 
 				if linkResources {
 
-					groupPermissions, ok := groupTyped["group_permissions"].([]interface{})
+					groupPermissions, ok := groupTyped["group_permissions"].([]any)
 					if !ok {
-						panic("Could not cast group_permissions to []interface{}")
+						panic("Could not cast group_permissions to []any")
 					}
-					newGroupPermissionsTyped := []map[string]interface{}{}
+					newGroupPermissionsTyped := []map[string]any{}
 					for _, groupPermission := range groupPermissions {
-						groupPermissionTyped := groupPermission.(map[string]interface{})
+						groupPermissionTyped := groupPermission.(map[string]any)
 						if groupPermissionTyped["all_projects"] == false {
 							groupPermissionTyped["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%0.f.id", groupPermissionTyped["project_id"].(float64))
 						}
