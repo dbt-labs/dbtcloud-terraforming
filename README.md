@@ -17,7 +17,7 @@ TBD
 | dbtcloud_group                             | Account        | ✅  not tested     |                  |                       |
 | dbtcloud_job                               | Project        | ✅                 | ✅               |                       |
 | dbtcloud_license_map                       |                |                    |                  |                       |
-| dbtcloud_notification                      |                |                    |                  |                       |
+| dbtcloud_notification                      | Account        |                    |                  |                       |
 | dbtcloud_postgres_credential               |                |                    |                  | 🔒*                  |
 | dbtcloud_project                           | Project        | ✅                 | ✅               |                       |
 | dbtcloud_project_artefacts                 |                |                    |                  |                       |
@@ -25,6 +25,6 @@ TBD
 | dbtcloud_project_repository                | Project        | ✅                 |                  |                       |
 | dbtcloud_repository                        | Project        | ✅  not tested     |                  | 🔒*                  |
 | dbtcloud_service_token                     |                |                    |                  | 🔒                    |
-| dbtcloud_snowflake_credential              |                |                    |                  | 🔒                   |
+| dbtcloud_snowflake_credential              | Project        | ✅                 |                  | 🔒                   |
 | dbtcloud_user_groups                       |                |                    |                  |                       |
 | dbtcloud_webhook                           |                |                    |                  |                       |
