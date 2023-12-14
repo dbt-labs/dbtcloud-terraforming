@@ -206,7 +206,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 
 				if linkResources {
 					environmentID := jobTyped["environment_id"].(float64)
-					jobTyped["environment_id"] = fmt.Sprintf("dbtcloud_environnment.terraform_managed_resource_%0.f.environment_id", environmentID)
+					jobTyped["environment_id"] = fmt.Sprintf("dbtcloud_environment.terraform_managed_resource_%0.f.environment_id", environmentID)
 
 					projectID := jobTyped["project_id"].(float64)
 					jobTyped["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%0.f.id", projectID)
@@ -336,7 +336,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 				for envVarName, envVarValues := range envVars.(map[string]any) {
 					envDetails := map[string]any{}
 					envDetails["name"] = envVarName
-					envDetails["id"] = envVarName
+					envDetails["id"] = fmt.Sprintf("%d_%s", projectID, envVarName)
 					envDetails["project_id"] = projectID
 
 					if linkResources {
@@ -364,6 +364,41 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 			}
 
 			jsonStructData = listEnvVars
+			resourceCount = len(jsonStructData)
+
+		case "dbtcloud_snowflake_credential":
+			listCredentials := dbtcloud.GetCredentials(config)
+
+			for _, credential := range listCredentials {
+				credentialTyped := credential.(map[string]any)
+
+				// we only import the Snowflake ones
+				if credentialTyped["type"] != "snowflake" {
+					continue
+				}
+
+				// we filter the correct projects if need be
+				projectID := credentialTyped["project_id"].(float64)
+				if len(listFilterProjects) > 0 && lo.Contains(listFilterProjects, int(projectID)) == false {
+					continue
+				}
+
+				credentialTyped["num_threads"] = credentialTyped["threads"]
+
+				switch credentialTyped["auth_type"] {
+				case "password":
+					credentialTyped["password"] = "---TBD---"
+				case "keypair":
+					credentialTyped["private_key"] = "!!!TBD!!!"
+					credentialTyped["private_key_passphrase"] = "---TBD---"
+				}
+
+				if linkResources {
+					credentialTyped["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%0.f.id", projectID)
+				}
+				jsonStructData = append(jsonStructData, credentialTyped)
+			}
+
 			resourceCount = len(jsonStructData)
 
 		// case "cloudflare_access_group":
