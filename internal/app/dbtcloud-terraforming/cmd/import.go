@@ -24,6 +24,7 @@ var resourceImportStringFormats = map[string]string{
 	"dbtcloud_environment":          ":project_id::id",
 	"dbtcloud_environment_variable": ":project_id::name",
 	"dbtcloud_group":                ":id",
+	"dbtcloud_snowflake_credential": ":id",
 
 	"cloudflare_access_rule":           ":identifier_type/:identifier_value/:id",
 	"cloudflare_account_member":        ":account_id/:id",
@@ -125,6 +126,9 @@ func runImport() func(cmd *cobra.Command, args []string) {
 
 		case "dbtcloud_group":
 			jsonStructData = dbtcloud.GetGroups(config)
+
+		case "dbtcloud_snowflake_credential":
+			jsonStructData = dbtcloud.GetSnowflakeCredentials(config)
 
 		case "cloudflare_access_rule":
 			if accountID != "" {

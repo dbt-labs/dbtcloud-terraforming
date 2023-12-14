@@ -174,6 +174,23 @@ func GetEnvironmentVariables(config DbtCloudConfig, listProjects []int) map[int]
 	return allEnvVars
 }
 
+func GetSnowflakeCredentials(config DbtCloudConfig) []any {
+	listCredentials := GetCredentials(config)
+	snowflakeCredentials := []any{}
+
+	for _, credential := range listCredentials {
+		credentialTyped := credential.(map[string]any)
+
+		// we only import the Snowflake ones
+		if credentialTyped["type"] != "snowflake" {
+			continue
+		}
+		snowflakeCredentials = append(snowflakeCredentials, credential)
+	}
+
+	return snowflakeCredentials
+}
+
 func GetCredentials(config DbtCloudConfig) []any {
 	url := fmt.Sprintf("https://%s/api/v3/accounts/%s/credentials/", config.Hostname, config.AccountID)
 

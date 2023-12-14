@@ -367,15 +367,10 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 			resourceCount = len(jsonStructData)
 
 		case "dbtcloud_snowflake_credential":
-			listCredentials := dbtcloud.GetCredentials(config)
+			listCredentials := dbtcloud.GetSnowflakeCredentials(config)
 
 			for _, credential := range listCredentials {
 				credentialTyped := credential.(map[string]any)
-
-				// we only import the Snowflake ones
-				if credentialTyped["type"] != "snowflake" {
-					continue
-				}
 
 				// we filter the correct projects if need be
 				projectID := credentialTyped["project_id"].(float64)

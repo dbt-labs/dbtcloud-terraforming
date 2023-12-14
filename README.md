@@ -25,6 +25,6 @@ TBD
 | dbtcloud_project_repository                | Project        | ✅                 | ✅               |                       |
 | dbtcloud_repository                        | Project        | ✅  not tested     |                  | 🔒*                  |
 | dbtcloud_service_token                     |                |                    |                  | 🔒                    |
-| dbtcloud_snowflake_credential              | Project        | ✅                 |                  | 🔒                   |
+| dbtcloud_snowflake_credential              | Project        | ✅                 | ✅               | 🔒                   |
 | dbtcloud_user_groups                       |                |                    |                  |                       |
 | dbtcloud_webhook                           |                |                    |                  |                       |
