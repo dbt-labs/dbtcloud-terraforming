@@ -14,12 +14,13 @@ import (
 var resourceImportStringFormats = map[string]string{
 	"dbtcloud_project":              ":id",
 	"dbtcloud_project_connection":   ":id::connection_id",
+	"dbtcloud_repository":           ":project_id::id",
 	"dbtcloud_project_repository":   ":id::repository_id",
 	"dbtcloud_job":                  ":id",
 	"dbtcloud_environment":          ":project_id::id",
 	"dbtcloud_environment_variable": ":project_id::name",
 	"dbtcloud_group":                ":id",
-	"dbtcloud_snowflake_credential": ":id",
+	"dbtcloud_snowflake_credential": ":project_id::id",
 }
 
 func init() {
@@ -87,6 +88,9 @@ func runImport() func(cmd *cobra.Command, args []string) {
 
 		case "dbtcloud_snowflake_credential":
 			jsonStructData = dbtcloud.GetSnowflakeCredentials(config)
+
+		case "dbtcloud_repository":
+			jsonStructData = dbtcloud.GetRepositories(config)
 
 		default:
 			fmt.Fprintf(cmd.OutOrStdout(), "%q is not yet supported for state import", resourceType)
