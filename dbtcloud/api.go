@@ -130,3 +130,28 @@ func GetEnvironmentVariables(config DbtCloudConfig, listProjects []int) map[int]
 	}
 	return allEnvVars
 }
+
+func GetCredentials(config DbtCloudConfig) []any {
+	url := fmt.Sprintf("https://%s/api/v3/accounts/%s/credentials/", config.Hostname, config.AccountID)
+
+	// we need to remove all the credentials mapped to projects that are not active
+	// those stay dangling in dbt Cloud
+
+	allProjects := GetProjects(config)
+	allProjectIDs := lo.Map(allProjects, func(project any, index int) int {
+		return int(project.(map[string]interface{})["id"].(float64))
+	})
+
+	allCredentials := GetData(config, url)
+	validCredentials := []any{}
+
+	for _, credential := range allCredentials {
+		credentialTyped := credential.(map[string]interface{})
+		credentialProjectID := int(credentialTyped["project_id"].(float64))
+
+		if lo.Contains(allProjectIDs, credentialProjectID) == true {
+			validCredentials = append(validCredentials, credential)
+		}
+	}
+	return validCredentials
+}
