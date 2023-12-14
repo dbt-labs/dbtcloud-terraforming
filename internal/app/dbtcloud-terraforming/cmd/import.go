@@ -17,10 +17,13 @@ import (
 // resourceImportStringFormats contains a mapping of the resource type to the
 // composite ID that is compatible with performing an import.
 var resourceImportStringFormats = map[string]string{
-	"dbtcloud_project":            ":id",
-	"dbtcloud_project_connection": ":id::connection_id",
-	"dbtcloud_job":                ":id",
-	"dbtcloud_environment":        ":project_id::id",
+	"dbtcloud_project":              ":id",
+	"dbtcloud_project_connection":   ":id::connection_id",
+	"dbtcloud_project_repository":   ":id::repository_id",
+	"dbtcloud_job":                  ":id",
+	"dbtcloud_environment":          ":project_id::id",
+	"dbtcloud_environment_variable": ":project_id::name",
+	"dbtcloud_group":                ":id",
 
 	"cloudflare_access_rule":           ":identifier_type/:identifier_value/:id",
 	"cloudflare_account_member":        ":account_id/:id",
@@ -96,11 +99,32 @@ func runImport() func(cmd *cobra.Command, args []string) {
 		case "dbtcloud_project_connection":
 			jsonStructData = dbtcloud.GetProjects(config)
 
+		case "dbtcloud_project_repository":
+			jsonStructData = dbtcloud.GetProjects(config)
+
 		case "dbtcloud_job":
 			jsonStructData = dbtcloud.GetJobs(config)
 
 		case "dbtcloud_environment":
 			jsonStructData = dbtcloud.GetEnvironments(config)
+
+		case "dbtcloud_environment_variable":
+			mapEnvVars := dbtcloud.GetEnvironmentVariables(config, listFilterProjects)
+
+			listEnvVars := []any{}
+			for projectID, envVars := range mapEnvVars {
+				for envVarName := range envVars.(map[string]any) {
+					envDetails := map[string]any{}
+					envDetails["name"] = envVarName
+					envDetails["project_id"] = float64(projectID)
+					envDetails["id"] = fmt.Sprintf("%d_%s", projectID, envVarName)
+					listEnvVars = append(listEnvVars, envDetails)
+				}
+			}
+			jsonStructData = listEnvVars
+
+		case "dbtcloud_group":
+			jsonStructData = dbtcloud.GetGroups(config)
 
 		case "cloudflare_access_rule":
 			if accountID != "" {
@@ -539,12 +563,28 @@ func buildCompositeID(resourceType, resourceID string, data interface{}) string 
 		connectionID = fmt.Sprintf("%0.f", connnectionIDRaw.(float64))
 	}
 
+	repositoryIDRaw, ok := data.(map[string]interface{})["repository_id"]
+	var repositoryID string
+	if !ok {
+		repositoryID = "no-repository_id"
+	} else {
+		repositoryID = fmt.Sprintf("%0.f", repositoryIDRaw.(float64))
+	}
+
 	projectIDRaw, ok := data.(map[string]interface{})["project_id"]
 	var projectID string
 	if !ok {
 		projectID = "no-project_id"
 	} else {
 		projectID = fmt.Sprintf("%0.f", projectIDRaw.(float64))
+	}
+
+	nameRaw, ok := data.(map[string]interface{})["name"]
+	var name string
+	if !ok {
+		name = "no-name"
+	} else {
+		name = nameRaw.(string)
 	}
 
 	replacer := strings.NewReplacer(
@@ -554,7 +594,9 @@ func buildCompositeID(resourceType, resourceID string, data interface{}) string 
 		":account_id", accountID,
 		":id", resourceID,
 		":connection_id", connectionID,
+		":repository_id", repositoryID,
 		":project_id", projectID,
+		":name", name,
 	)
 	s += "\n"
 
