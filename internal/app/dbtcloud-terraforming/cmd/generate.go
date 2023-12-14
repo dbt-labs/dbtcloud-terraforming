@@ -303,6 +303,46 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 
 			resourceCount = len(jsonStructData)
 
+		case "dbtcloud_environment_variable":
+
+			mapEnvVars := dbtcloud.GetEnvironmentVariables(config)
+			listEnvVars := []any{}
+
+			for projectID, envVars := range mapEnvVars {
+				for envVarName, envVarValues := range envVars.(map[string]any) {
+					envDetails := map[string]any{}
+					envDetails["name"] = envVarName
+					envDetails["id"] = envVarName
+					envDetails["project_id"] = projectID
+
+					if linkResources {
+						envDetails["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%d.id", projectID)
+						// TODO: Add the hard coded dependencies with the environments
+					}
+
+					// we need to make int a map[string]any to work with the matching strategy
+					collectEnvValues := map[string]any{}
+
+					envVarValuesTyped := envVarValues.(map[string]any)
+					for envName, envValues := range envVarValuesTyped {
+
+						if envValues != nil {
+							envValuesTyped := envValues.(map[string]any)
+							collectEnvValues[envName] = envValuesTyped["value"].(string)
+							log.Warn(envName, envValues)
+						}
+
+					}
+					envDetails["environment_values"] = collectEnvValues
+
+					listEnvVars = append(listEnvVars, envDetails)
+				}
+			}
+
+			jsonStructData = listEnvVars
+			log.Error(jsonStructData)
+			resourceCount = len(jsonStructData)
+
 		// case "cloudflare_access_group":
 		// 	jsonPayload, _, err := api.ListAccessGroups(context.Background(), identifier, cloudflare.ListAccessGroupsParams{})
 		// 	if err != nil {
@@ -1266,6 +1306,8 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 				switch structData["id"].(type) {
 				case float64:
 					id = fmt.Sprintf("%.0f", structData["id"].(float64))
+				case nil:
+					panic("There is no `id` defined for the resources")
 				default:
 					id = structData["id"].(string)
 				}
