@@ -6,6 +6,8 @@ import (
 	"io"
 	"log"
 	"net/http"
+
+	"github.com/samber/lo"
 )
 
 type Response struct {
@@ -110,7 +112,7 @@ func GetGroups(config DbtCloudConfig) []any {
 	return GetData(config, url)
 }
 
-func GetEnvironmentVariables(config DbtCloudConfig) map[int]any {
+func GetEnvironmentVariables(config DbtCloudConfig, listProjects []int) map[int]any {
 
 	allEnvVars := map[int]any{}
 
@@ -118,6 +120,11 @@ func GetEnvironmentVariables(config DbtCloudConfig) map[int]any {
 	for _, project := range projects {
 		projectTyped := project.(map[string]interface{})
 		projectID := int(projectTyped["id"].(float64))
+
+		if len(listProjects) > 0 && lo.Contains(listProjects, projectID) == false {
+			continue
+		}
+
 		url := fmt.Sprintf("https://%s/api/v3/accounts/%s/projects/%d/environment-variables/environment/", config.Hostname, config.AccountID, projectID)
 		allEnvVars[projectID] = GetDataEnvVars(config, url)
 	}

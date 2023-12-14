@@ -9,7 +9,7 @@ TBD
 | dbtcloud_connection                        |                |                    |                  | 🔒*                  |
 | dbtcloud_databricks_credential             |                |                    |                  |                       |
 | dbtcloud_environment                       | Project        | ✅                 | ✅               |                       |
-| dbtcloud_environment_variable              |                |                    |                  |                       |
+| dbtcloud_environment_variable              | Project        | ✅                 |                  |                       |
 | dbtcloud_environment_variable_job_override |                |                    |                  |                       |
 | dbtcloud_extended_attributes               |                |                    |                  |                       |
 | dbtcloud_fabric_connection                 |                |                    |                  |                       |
@@ -23,8 +23,8 @@ TBD
 | dbtcloud_project_artefacts                 |                |                    |                  |                       |
 | dbtcloud_project_connection                | Project        | ✅                 | ✅               |                       |
 | dbtcloud_project_repository                | Project        | ✅                 |                  |                       |
-| dbtcloud_repository                        | Project        | ✅  not tested     |                   | 🔒*                  |
-| dbtcloud_service_token                     |                |                    |                  |                       |
+| dbtcloud_repository                        | Project        | ✅  not tested     |                  | 🔒*                  |
+| dbtcloud_service_token                     |                |                    |                  | 🔒                    |
 | dbtcloud_snowflake_credential              |                |                    |                  | 🔒                   |
 | dbtcloud_user_groups                       |                |                    |                  |                       |
 | dbtcloud_webhook                           |                |                    |                  |                       |

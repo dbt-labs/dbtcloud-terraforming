@@ -10,6 +10,7 @@ import (
 
 var log = logrus.New()
 var cfgFile, zoneID, hostname, apiEmail, apiKey, apiToken, accountID, terraformInstallPath, terraformBinaryPath string
+var listFilterProjects []int
 var verbose bool
 var api *cloudflare.API
 var terraformImportCmdPrefix = "terraform import"
@@ -71,6 +72,14 @@ func init() {
 		log.Fatal(err)
 	}
 	if err = viper.BindEnv("hostname", "DBT_CLOUD_HOSTNAME"); err != nil {
+		log.Fatal(err)
+	}
+
+	rootCmd.PersistentFlags().IntSliceVarP(&listFilterProjects, "projects", "p", []int{}, "Project IDs to limit the import for")
+	if err = viper.BindPFlag("projects", rootCmd.PersistentFlags().Lookup("projects")); err != nil {
+		log.Fatal(err)
+	}
+	if err = viper.BindEnv("projects", "DBT_CLOUD_PROJECTS"); err != nil {
 		log.Fatal(err)
 	}
 

@@ -45,6 +45,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 		if hostname == "" {
 			hostname = "cloud.getdbt.com"
 		}
+		listFilterProjects = viper.GetIntSlice("projects")
 
 		config := dbtcloud.DbtCloudConfig{
 			Hostname:  hostname,
@@ -162,6 +163,11 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 			for _, job := range jobs {
 				jobTyped := job.(map[string]any)
 
+				projectID := jobTyped["project_id"].(float64)
+				if len(listFilterProjects) > 0 && lo.Contains(listFilterProjects, int(projectID)) == false {
+					continue
+				}
+
 				jobSettings := jobTyped["settings"].(map[string]any)
 				jobTyped["num_threads"] = jobSettings["threads"].(float64)
 				jobTyped["target_name"] = jobSettings["target_name"].(string)
@@ -216,6 +222,16 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 
 			for _, environment := range listEnvironments {
 				environmentsTyped := environment.(map[string]any)
+				projectID := environmentsTyped["project_id"].(float64)
+
+				// we skip if a project list is defined and the project is not in the list
+				if len(listFilterProjects) > 0 && lo.Contains(listFilterProjects, int(projectID)) == false {
+					continue
+				}
+
+				if linkResources {
+					environmentsTyped["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%0.f.id", projectID)
+				}
 
 				// handle the case when credentials_id is not a float because it is null
 				if credentials_id, ok := environmentsTyped["credentials_id"].(float64); ok {
@@ -234,8 +250,12 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 			for _, repository := range listRepositories {
 				repositoryTyped := repository.(map[string]any)
 
+				projectID := repositoryTyped["project_id"].(float64)
+				if len(listFilterProjects) > 0 && lo.Contains(listFilterProjects, int(projectID)) == false {
+					continue
+				}
+
 				if linkResources {
-					projectID := repositoryTyped["project_id"]
 					repositoryTyped["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%0.f.id", projectID)
 				}
 				jsonStructData = append(jsonStructData, repositoryTyped)
@@ -249,7 +269,11 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 
 			for _, project := range listProjects {
 				projectTyped := project.(map[string]any)
-				projectTyped["project_id"] = projectTyped["id"].(float64)
+				projectID := projectTyped["id"].(float64)
+				projectTyped["project_id"] = projectID
+				if len(listFilterProjects) > 0 && lo.Contains(listFilterProjects, int(projectID)) == false {
+					continue
+				}
 				jsonStructData = append(jsonStructData, projectTyped)
 
 				if linkResources {
@@ -305,7 +329,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 
 		case "dbtcloud_environment_variable":
 
-			mapEnvVars := dbtcloud.GetEnvironmentVariables(config)
+			mapEnvVars := dbtcloud.GetEnvironmentVariables(config, listFilterProjects)
 			listEnvVars := []any{}
 
 			for projectID, envVars := range mapEnvVars {
@@ -340,7 +364,6 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 			}
 
 			jsonStructData = listEnvVars
-			log.Error(jsonStructData)
 			resourceCount = len(jsonStructData)
 
 		// case "cloudflare_access_group":
