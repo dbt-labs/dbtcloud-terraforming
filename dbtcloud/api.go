@@ -6,12 +6,23 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/samber/lo"
 )
 
 type Response struct {
-	Data []any `json:"data"`
+	Data  []any `json:"data"`
+	Extra Extra `json:"extra"`
+}
+
+type Extra struct {
+	Pagination Pagination `json:"pagination"`
+}
+
+type Pagination struct {
+	Count      int `json:"count"`
+	TotalCount int `json:"total_count"`
 }
 
 type EnvVarResponse struct {
@@ -56,8 +67,8 @@ func GetEndpoint(url string, config DbtCloudConfig) (error, []byte) {
 
 func GetData(config DbtCloudConfig, url string) []any {
 
+	// get the first page
 	err, jsonPayload := GetEndpoint(url, config)
-
 	var response Response
 
 	err = json.Unmarshal(jsonPayload, &response)
@@ -65,7 +76,39 @@ func GetData(config DbtCloudConfig, url string) []any {
 		log.Fatal(err)
 	}
 
-	return response.Data
+	allResponses := response.Data
+
+	count := response.Extra.Pagination.Count
+	for count < response.Extra.Pagination.TotalCount {
+		// get the next page
+
+		var newURL string
+		lastPartURL, _ := lo.Last(strings.Split(url, "/"))
+		if strings.Contains(lastPartURL, "?") {
+			newURL = fmt.Sprintf("%s&offset=%d", url, count)
+		} else {
+			newURL = fmt.Sprintf("%s?offset=%d", url, count)
+		}
+
+		err, jsonPayload := GetEndpoint(newURL, config)
+		var response Response
+
+		err = json.Unmarshal(jsonPayload, &response)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		if response.Extra.Pagination.Count == 0 {
+			// Unlucky! one object might have been deleted since the first call
+			// if we don't stop here we will loop forever!
+			break
+		} else {
+			count += response.Extra.Pagination.Count
+		}
+		allResponses = append(allResponses, response.Data...)
+	}
+
+	return allResponses
 }
 
 func GetDataEnvVars(config DbtCloudConfig, url string) map[string]any {
