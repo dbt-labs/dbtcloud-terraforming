@@ -5,8 +5,10 @@ import (
 	"strings"
 
 	"github.com/dbt-cloud/dbtcloud-terraforming/dbtcloud"
+	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"github.com/zclconf/go-cty/cty"
 )
 
 // resourceImportStringFormats contains a mapping of the resource type to the
@@ -97,6 +99,9 @@ func runImport() func(cmd *cobra.Command, args []string) {
 			return
 		}
 
+		importFile := hclwrite.NewEmptyFile()
+		importBody := importFile.Body()
+
 		for _, data := range jsonStructData {
 
 			var idStr string
@@ -110,17 +115,39 @@ func runImport() func(cmd *cobra.Command, args []string) {
 				// Handle other unexpected types
 			}
 
-			fmt.Fprint(cmd.OutOrStdout(), buildCompositeID(resourceType, idStr, data))
+			if useModernImportBlock {
+				idvalue := buildRawImportAddress(resourceType, idStr, data)
+				imp := importBody.AppendNewBlock("import", []string{}).Body()
+				imp.SetAttributeRaw("to", hclwrite.TokensForIdentifier(fmt.Sprintf("%s.%s", resourceType, fmt.Sprintf("%s_%s", terraformResourceNamePrefix, idStr))))
+				imp.SetAttributeValue("id", cty.StringVal(idvalue))
+				importFile.Body().AppendNewline()
+			} else {
+				fmt.Fprint(cmd.OutOrStdout(), buildTerraformImportCommand(resourceType, idStr, data))
+			}
+		}
+		if useModernImportBlock {
 
-			// fmt.Fprint(cmd.OutOrStdout(), buildCompositeID(resourceType, data.(map[string]interface{})["id"].(string)))
+			// don't format the output; there is a bug in hclwrite.Format that
+			// splits incorrectly on certain characters. instead, manually
+			// insert new lines on the block.
+			fmt.Fprint(cmd.OutOrStdout(), string(importFile.Bytes()))
+
 		}
 	}
 }
 
-// buildCompositeID takes the resourceType and resourceID in order to lookup the
+// buildTerraformImportCommand takes the resourceType and resourceID in order to
+// lookup the resource type import string and then return a suitable composite
+// value that is compatible with `terraform import`.
+func buildTerraformImportCommand(resourceType, resourceID string, data interface{}) string {
+	resourceImportAddress := buildRawImportAddress(resourceType, resourceID, data)
+	return fmt.Sprintf("%s %s.%s_%s %s\n", terraformImportCmdPrefix, resourceType, terraformResourceNamePrefix, resourceID, resourceImportAddress)
+}
+
+// buildRawImportAddress takes the resourceType and resourceID in order to lookup the
 // resource type import string and then return a suitable composite value that
 // is compatible with `terraform import`.
-func buildCompositeID(resourceType, resourceID string, data interface{}) string {
+func buildRawImportAddress(resourceType, resourceID string, data interface{}) string {
 	if _, ok := resourceImportStringFormats[resourceType]; !ok {
 		log.Fatalf("%s does not have an import format defined", resourceType)
 	}
@@ -135,9 +162,6 @@ func buildCompositeID(resourceType, resourceID string, data interface{}) string 
 		identiferType = "zone"
 		identiferValue = zoneID
 	}
-
-	s := ""
-	s += fmt.Sprintf("%s %s.%s_%s %s", terraformImportCmdPrefix, resourceType, terraformResourceNamePrefix, resourceID, resourceImportStringFormats[resourceType])
 
 	connnectionIDRaw, ok := data.(map[string]interface{})["connection_id"]
 	var connectionID string
@@ -176,6 +200,7 @@ func buildCompositeID(resourceType, resourceID string, data interface{}) string 
 		name = nameRaw.(string)
 	}
 
+	s := resourceImportStringFormats[resourceType]
 	replacer := strings.NewReplacer(
 		":identifier_type", identiferType,
 		":identifier_value", identiferValue,
@@ -187,7 +212,6 @@ func buildCompositeID(resourceType, resourceID string, data interface{}) string 
 		":project_id", projectID,
 		":name", name,
 	)
-	s += "\n"
 
 	return replacer.Replace(s)
 }

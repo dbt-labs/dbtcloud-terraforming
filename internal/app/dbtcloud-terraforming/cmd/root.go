@@ -11,7 +11,7 @@ import (
 var log = logrus.New()
 var cfgFile, zoneID, hostname, apiEmail, apiKey, apiToken, accountID, terraformInstallPath, terraformBinaryPath string
 var listFilterProjects []int
-var verbose bool
+var verbose, useModernImportBlock bool
 var api *cloudflare.API
 var terraformImportCmdPrefix = "terraform import"
 var terraformResourceNamePrefix = "terraform_managed_resource"
@@ -87,6 +87,8 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Specify verbose output (same as setting log level to debug)")
 
 	rootCmd.PersistentFlags().StringVar(&resourceType, "resource-type", "", "Which resource you wish to generate")
+
+	rootCmd.PersistentFlags().BoolVarP(&useModernImportBlock, "modern-import-block", "", false, "Whether to generate HCL import blocks for generated resources instead of terraform import compatible CLI commands. This is only compatible with Terraform 1.5+")
 
 	rootCmd.PersistentFlags().StringVar(&terraformInstallPath, "terraform-install-path", ".", "Path to an initialized Terraform working directory")
 
