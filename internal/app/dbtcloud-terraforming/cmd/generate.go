@@ -427,6 +427,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 
 				for _, connection := range bigqueryConnections {
 					connectionTyped := connection.(map[string]any)
+					projectID := connectionTyped["project_id"].(float64)
 					connectionDetailsTyped := connectionTyped["details"].(map[string]any)
 
 					// we "promote" all details fields one level up like in the Terraform resource
@@ -438,6 +439,10 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 					connectionTyped["private_key"] = "---TBD---"
 					connectionTyped["application_id"] = "---TBD if using OAuth, otherwise delete---"
 					connectionTyped["private_key"] = "---TBD if using OAuth, otherwise delete---"
+
+					if linkResources {
+						connectionTyped["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%0.f.id", projectID)
+					}
 
 					bigqueryConnectionsTyped = append(bigqueryConnectionsTyped, connectionTyped)
 				}
