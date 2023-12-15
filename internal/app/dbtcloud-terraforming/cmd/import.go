@@ -144,7 +144,12 @@ func buildCompositeID(resourceType, resourceID string, data interface{}) string 
 	if !ok {
 		connectionID = "no-connection_id"
 	} else {
-		connectionID = fmt.Sprintf("%0.f", connnectionIDRaw.(float64))
+		connectionIDFloat, ok := connnectionIDRaw.(float64)
+		if !ok {
+			connectionID = "no-connection_id"
+		} else {
+			connectionID = fmt.Sprintf("%0.f", connectionIDFloat)
+		}
 	}
 
 	repositoryIDRaw, ok := data.(map[string]interface{})["repository_id"]
