@@ -97,7 +97,7 @@ func runImport() func(cmd *cobra.Command, args []string) {
 				jsonStructData = dbtcloud.GetRepositories(config)
 
 			default:
-				fmt.Fprintf(cmd.OutOrStdout(), "%q is not yet supported for state import", resourceType)
+				fmt.Fprintf(cmd.OutOrStderr(), "%q is not yet supported for state import", resourceType)
 				return
 			}
 

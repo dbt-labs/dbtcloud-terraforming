@@ -399,12 +399,12 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 				resourceCount = len(jsonStructData)
 
 			default:
-				fmt.Fprintf(cmd.OutOrStdout(), "%q is not yet supported for automatic generation", resourceType)
+				fmt.Fprintf(cmd.OutOrStderr(), "%q is not yet supported for automatic generation", resourceType)
 				return
 			}
 			// If we don't have any resources to generate, just bail out early.
 			if resourceCount == 0 {
-				fmt.Fprint(cmd.OutOrStdout(), "no resources found to generate. Exiting...")
+				fmt.Fprint(cmd.OutOrStderr(), "no resources found to generate. Exiting...")
 				return
 			}
 
