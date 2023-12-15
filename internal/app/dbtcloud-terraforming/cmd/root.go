@@ -86,7 +86,7 @@ func init() {
 	// Debug logging mode
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Specify verbose output (same as setting log level to debug)")
 
-	rootCmd.PersistentFlags().StringVar(&resourceType, "resource-type", "", "Which resource you wish to generate")
+	rootCmd.PersistentFlags().StringSliceVar(&resourceTypes, "resource-types", []string{}, "List of resource types you wish to generate")
 
 	rootCmd.PersistentFlags().BoolVarP(&useModernImportBlock, "modern-import-block", "", false, "Whether to generate HCL import blocks for generated resources instead of terraform import compatible CLI commands. This is only compatible with Terraform 1.5+")
 

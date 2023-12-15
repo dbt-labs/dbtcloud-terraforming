@@ -53,85 +53,88 @@ func runImport() func(cmd *cobra.Command, args []string) {
 			AccountID: accountID,
 		}
 
-		switch resourceType {
+		for _, resourceType := range resourceTypes {
 
-		case "dbtcloud_project":
-			jsonStructData = dbtcloud.GetProjects(config)
+			switch resourceType {
 
-		case "dbtcloud_project_connection":
-			jsonStructData = dbtcloud.GetProjects(config)
+			case "dbtcloud_project":
+				jsonStructData = dbtcloud.GetProjects(config)
 
-		case "dbtcloud_project_repository":
-			jsonStructData = dbtcloud.GetProjects(config)
+			case "dbtcloud_project_connection":
+				jsonStructData = dbtcloud.GetProjects(config)
 
-		case "dbtcloud_job":
-			jsonStructData = dbtcloud.GetJobs(config)
+			case "dbtcloud_project_repository":
+				jsonStructData = dbtcloud.GetProjects(config)
 
-		case "dbtcloud_environment":
-			jsonStructData = dbtcloud.GetEnvironments(config)
+			case "dbtcloud_job":
+				jsonStructData = dbtcloud.GetJobs(config)
 
-		case "dbtcloud_environment_variable":
-			mapEnvVars := dbtcloud.GetEnvironmentVariables(config, listFilterProjects)
+			case "dbtcloud_environment":
+				jsonStructData = dbtcloud.GetEnvironments(config)
 
-			listEnvVars := []any{}
-			for projectID, envVars := range mapEnvVars {
-				for envVarName := range envVars.(map[string]any) {
-					envDetails := map[string]any{}
-					envDetails["name"] = envVarName
-					envDetails["project_id"] = float64(projectID)
-					envDetails["id"] = fmt.Sprintf("%d_%s", projectID, envVarName)
-					listEnvVars = append(listEnvVars, envDetails)
+			case "dbtcloud_environment_variable":
+				mapEnvVars := dbtcloud.GetEnvironmentVariables(config, listFilterProjects)
+
+				listEnvVars := []any{}
+				for projectID, envVars := range mapEnvVars {
+					for envVarName := range envVars.(map[string]any) {
+						envDetails := map[string]any{}
+						envDetails["name"] = envVarName
+						envDetails["project_id"] = float64(projectID)
+						envDetails["id"] = fmt.Sprintf("%d_%s", projectID, envVarName)
+						listEnvVars = append(listEnvVars, envDetails)
+					}
+				}
+				jsonStructData = listEnvVars
+
+			case "dbtcloud_group":
+				jsonStructData = dbtcloud.GetGroups(config)
+
+			case "dbtcloud_snowflake_credential":
+				jsonStructData = dbtcloud.GetSnowflakeCredentials(config)
+
+			case "dbtcloud_repository":
+				jsonStructData = dbtcloud.GetRepositories(config)
+
+			default:
+				fmt.Fprintf(cmd.OutOrStdout(), "%q is not yet supported for state import", resourceType)
+				return
+			}
+
+			importFile := hclwrite.NewEmptyFile()
+			importBody := importFile.Body()
+
+			for _, data := range jsonStructData {
+
+				var idStr string
+				switch id := data.(map[string]interface{})["id"].(type) {
+				case float64:
+					// Convert float64 to string, assuming you want to truncate to an integer
+					idStr = fmt.Sprintf("%.0f", id)
+				case string:
+					idStr = id
+				default:
+					// Handle other unexpected types
+				}
+
+				if useModernImportBlock {
+					idvalue := buildRawImportAddress(resourceType, idStr, data)
+					imp := importBody.AppendNewBlock("import", []string{}).Body()
+					imp.SetAttributeRaw("to", hclwrite.TokensForIdentifier(fmt.Sprintf("%s.%s", resourceType, fmt.Sprintf("%s_%s", terraformResourceNamePrefix, idStr))))
+					imp.SetAttributeValue("id", cty.StringVal(idvalue))
+					importFile.Body().AppendNewline()
+				} else {
+					fmt.Fprint(cmd.OutOrStdout(), buildTerraformImportCommand(resourceType, idStr, data))
 				}
 			}
-			jsonStructData = listEnvVars
-
-		case "dbtcloud_group":
-			jsonStructData = dbtcloud.GetGroups(config)
-
-		case "dbtcloud_snowflake_credential":
-			jsonStructData = dbtcloud.GetSnowflakeCredentials(config)
-
-		case "dbtcloud_repository":
-			jsonStructData = dbtcloud.GetRepositories(config)
-
-		default:
-			fmt.Fprintf(cmd.OutOrStdout(), "%q is not yet supported for state import", resourceType)
-			return
-		}
-
-		importFile := hclwrite.NewEmptyFile()
-		importBody := importFile.Body()
-
-		for _, data := range jsonStructData {
-
-			var idStr string
-			switch id := data.(map[string]interface{})["id"].(type) {
-			case float64:
-				// Convert float64 to string, assuming you want to truncate to an integer
-				idStr = fmt.Sprintf("%.0f", id)
-			case string:
-				idStr = id
-			default:
-				// Handle other unexpected types
-			}
-
 			if useModernImportBlock {
-				idvalue := buildRawImportAddress(resourceType, idStr, data)
-				imp := importBody.AppendNewBlock("import", []string{}).Body()
-				imp.SetAttributeRaw("to", hclwrite.TokensForIdentifier(fmt.Sprintf("%s.%s", resourceType, fmt.Sprintf("%s_%s", terraformResourceNamePrefix, idStr))))
-				imp.SetAttributeValue("id", cty.StringVal(idvalue))
-				importFile.Body().AppendNewline()
-			} else {
-				fmt.Fprint(cmd.OutOrStdout(), buildTerraformImportCommand(resourceType, idStr, data))
+
+				// don't format the output; there is a bug in hclwrite.Format that
+				// splits incorrectly on certain characters. instead, manually
+				// insert new lines on the block.
+				fmt.Fprint(cmd.OutOrStdout(), string(importFile.Bytes()))
+
 			}
-		}
-		if useModernImportBlock {
-
-			// don't format the output; there is a bug in hclwrite.Format that
-			// splits incorrectly on certain characters. instead, manually
-			// insert new lines on the block.
-			fmt.Fprint(cmd.OutOrStdout(), string(importFile.Bytes()))
-
 		}
 	}
 }
