@@ -398,6 +398,53 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 
 				resourceCount = len(jsonStructData)
 
+			case "dbtcloud_bigquery_credential":
+				listCredentials := dbtcloud.GetBigQueryCredentials(config)
+
+				for _, credential := range listCredentials {
+					credentialTyped := credential.(map[string]any)
+
+					// we filter the correct projects if need be
+					projectID := credentialTyped["project_id"].(float64)
+					if len(listFilterProjects) > 0 && lo.Contains(listFilterProjects, int(projectID)) == false {
+						continue
+					}
+
+					credentialTyped["num_threads"] = credentialTyped["threads"]
+					credentialTyped["dataset"] = credentialTyped["schema"]
+
+					if linkResources {
+						credentialTyped["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%0.f.id", projectID)
+					}
+					jsonStructData = append(jsonStructData, credentialTyped)
+				}
+
+				resourceCount = len(jsonStructData)
+
+			case "dbtcloud_bigquery_connection":
+				bigqueryConnections := dbtcloud.GetBigQueryConnections(config, listFilterProjects)
+				bigqueryConnectionsTyped := []any{}
+
+				for _, connection := range bigqueryConnections {
+					connectionTyped := connection.(map[string]any)
+					connectionDetailsTyped := connectionTyped["details"].(map[string]any)
+
+					// we "promote" all details fields one level up like in the Terraform resource
+					for detailKey, detailVal := range connectionDetailsTyped {
+						connectionTyped[detailKey] = detailVal
+					}
+
+					// we add the secure fields
+					connectionTyped["private_key"] = "---TBD---"
+					connectionTyped["application_id"] = "---TBD if using OAuth, otherwise delete---"
+					connectionTyped["private_key"] = "---TBD if using OAuth, otherwise delete---"
+
+					bigqueryConnectionsTyped = append(bigqueryConnectionsTyped, connectionTyped)
+				}
+
+				jsonStructData = bigqueryConnectionsTyped
+				resourceCount = len(jsonStructData)
+
 			default:
 				fmt.Fprintf(cmd.OutOrStderr(), "%q is not yet supported for automatic generation", resourceType)
 				return

@@ -16,6 +16,10 @@ type Response struct {
 	Extra Extra `json:"extra"`
 }
 
+type SingleResponse struct {
+	Data any `json:"data"`
+}
+
 type Extra struct {
 	Pagination Pagination `json:"pagination"`
 }
@@ -63,6 +67,19 @@ func GetEndpoint(url string, config DbtCloudConfig) (error, []byte) {
 		log.Fatalf("Error reading body: %v", err)
 	}
 	return err, jsonPayload
+}
+
+func GetSingleData(config DbtCloudConfig, url string) any {
+
+	err, jsonPayload := GetEndpoint(url, config)
+	var response SingleResponse
+
+	err = json.Unmarshal(jsonPayload, &response)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	return response.Data
 }
 
 func GetData(config DbtCloudConfig, url string) []any {
@@ -174,21 +191,66 @@ func GetEnvironmentVariables(config DbtCloudConfig, listProjects []int) map[int]
 	return allEnvVars
 }
 
+func GetConnections(config DbtCloudConfig, listProjects []int, warehouses []string) []any {
+
+	projects := GetProjects(config)
+	connections := []any{}
+
+	// we loop through all the projects to only get the active connections
+	// there are dangling connections in dbt Cloud with state=1 that we don't want to import
+	for _, project := range projects {
+		projectTyped := project.(map[string]interface{})
+		projectID := int(projectTyped["id"].(float64))
+
+		if len(listProjects) > 0 && lo.Contains(listProjects, projectID) == false {
+			continue
+		}
+
+		// we might have a project partially configured that we want to avoid
+		if projectTyped["connection"] == nil {
+			continue
+		}
+
+		projectConnectionTyped := projectTyped["connection"].(map[string]any)
+		if !lo.Contains(warehouses, projectConnectionTyped["type"].(string)) {
+			continue
+		}
+
+		url := fmt.Sprintf("https://%s/api/v3/accounts/%s/projects/%d/connections/%0.f/", config.Hostname, config.AccountID, projectID, projectConnectionTyped["id"].(float64))
+		connection := GetSingleData(config, url)
+		connections = append(connections, connection)
+	}
+
+	return connections
+}
+
+func GetBigQueryConnections(config DbtCloudConfig, listProjects []int) []any {
+	return GetConnections(config, listProjects, []string{"bigquery"})
+}
+
 func GetSnowflakeCredentials(config DbtCloudConfig) []any {
+	return GetWarehouseCredentials(config, "snowflake")
+}
+
+func GetBigQueryCredentials(config DbtCloudConfig) []any {
+	return GetWarehouseCredentials(config, "bigquery")
+}
+
+func GetWarehouseCredentials(config DbtCloudConfig, warehouse string) []any {
 	listCredentials := GetCredentials(config)
-	snowflakeCredentials := []any{}
+	warehouseCredentials := []any{}
 
 	for _, credential := range listCredentials {
 		credentialTyped := credential.(map[string]any)
 
-		// we only import the Snowflake ones
-		if credentialTyped["type"] != "snowflake" {
+		// we only import the relevant ones
+		if credentialTyped["type"] != warehouse {
 			continue
 		}
-		snowflakeCredentials = append(snowflakeCredentials, credential)
+		warehouseCredentials = append(warehouseCredentials, credential)
 	}
 
-	return snowflakeCredentials
+	return warehouseCredentials
 }
 
 func GetCredentials(config DbtCloudConfig) []any {

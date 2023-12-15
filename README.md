@@ -4,8 +4,8 @@ TBD
 
 | Resource                                   | Resource Scope | Generate Supported | Import Supported | Requires manual setup |
 | ------------------------------------------ | -------------- | ------------------ | ---------------- | --------------------- |
-| dbtcloud_bigquery_connection               |                |                    |                  | 🔒                   |
-| dbtcloud_bigquery_credential               |                |                    |                  |                       |
+| dbtcloud_bigquery_connection               | Project        | ✅                 |                  | 🔒                   |
+| dbtcloud_bigquery_credential               | Project        | ✅                 |                  |                       |
 | dbtcloud_connection                        |                |                    |                  | 🔒*                  |
 | dbtcloud_databricks_credential             |                |                    |                  |                       |
 | dbtcloud_environment                       | Project        | ✅                 | ✅               |                       |
