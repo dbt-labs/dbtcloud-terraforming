@@ -47,12 +47,6 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 		}
 		listFilterProjects = viper.GetIntSlice("projects")
 
-		config := dbtcloud.DbtCloudConfig{
-			Hostname:  hostname,
-			APIToken:  apiToken,
-			AccountID: accountID,
-		}
-
 		var execPath, workingDir string
 		workingDir = viper.GetString("terraform-install-path")
 		execPath = viper.GetString("terraform-binary-path")
@@ -99,6 +93,8 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 			log.Fatal("failed to detect provider installation")
 		}
 
+		dbtCloudClient := dbtcloud.NewDbtCloudHTTPClient(hostname, apiToken, accountID)
+
 		for _, resourceType := range resourceTypes {
 
 			r := s.ResourceSchemas[resourceType]
@@ -138,12 +134,12 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 			switch resourceType {
 			case "dbtcloud_project":
 
-				jsonStructData = dbtcloud.GetProjects(config)
+				jsonStructData = dbtCloudClient.GetProjects()
 				resourceCount = len(jsonStructData)
 
 			case "dbtcloud_project_connection":
 
-				listProjects := dbtcloud.GetProjects(config)
+				listProjects := dbtCloudClient.GetProjects()
 
 				for _, project := range listProjects {
 					projectTyped := project.(map[string]any)
@@ -160,7 +156,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 
 			case "dbtcloud_job":
 
-				jobs := dbtcloud.GetJobs(config)
+				jobs := dbtCloudClient.GetJobs()
 
 				for _, job := range jobs {
 					jobTyped := job.(map[string]any)
@@ -220,7 +216,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 
 			case "dbtcloud_environment":
 
-				listEnvironments := dbtcloud.GetEnvironments(config)
+				listEnvironments := dbtCloudClient.GetEnvironments()
 
 				for _, environment := range listEnvironments {
 					environmentsTyped := environment.(map[string]any)
@@ -247,7 +243,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 
 			case "dbtcloud_repository":
 
-				listRepositories := dbtcloud.GetRepositories(config)
+				listRepositories := dbtCloudClient.GetRepositories()
 
 				for _, repository := range listRepositories {
 					repositoryTyped := repository.(map[string]any)
@@ -267,7 +263,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 
 			case "dbtcloud_project_repository":
 
-				listProjects := dbtcloud.GetProjects(config)
+				listProjects := dbtCloudClient.GetProjects()
 
 				for _, project := range listProjects {
 					projectTyped := project.(map[string]any)
@@ -291,7 +287,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 
 			case "dbtcloud_group":
 
-				listGroups := dbtcloud.GetGroups(config)
+				listGroups := dbtCloudClient.GetGroups()
 
 				for _, group := range listGroups {
 					groupTyped := group.(map[string]any)
@@ -331,7 +327,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 
 			case "dbtcloud_environment_variable":
 
-				mapEnvVars := dbtcloud.GetEnvironmentVariables(config, listFilterProjects)
+				mapEnvVars := dbtCloudClient.GetEnvironmentVariables(listFilterProjects)
 				listEnvVars := []any{}
 
 				for projectID, envVars := range mapEnvVars {
@@ -369,7 +365,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 				resourceCount = len(jsonStructData)
 
 			case "dbtcloud_snowflake_credential":
-				listCredentials := dbtcloud.GetSnowflakeCredentials(config)
+				listCredentials := dbtCloudClient.GetSnowflakeCredentials()
 
 				for _, credential := range listCredentials {
 					credentialTyped := credential.(map[string]any)
@@ -399,7 +395,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 				resourceCount = len(jsonStructData)
 
 			case "dbtcloud_bigquery_credential":
-				listCredentials := dbtcloud.GetBigQueryCredentials(config)
+				listCredentials := dbtCloudClient.GetBigQueryCredentials()
 
 				for _, credential := range listCredentials {
 					credentialTyped := credential.(map[string]any)
@@ -422,7 +418,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 				resourceCount = len(jsonStructData)
 
 			case "dbtcloud_bigquery_connection":
-				bigqueryConnections := dbtcloud.GetBigQueryConnections(config, listFilterProjects)
+				bigqueryConnections := dbtCloudClient.GetBigQueryConnections(listFilterProjects)
 				bigqueryConnectionsTyped := []any{}
 
 				for _, connection := range bigqueryConnections {

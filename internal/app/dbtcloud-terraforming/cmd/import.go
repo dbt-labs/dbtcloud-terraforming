@@ -47,33 +47,29 @@ func runImport() func(cmd *cobra.Command, args []string) {
 			hostname = "cloud.getdbt.com"
 		}
 
-		config := dbtcloud.DbtCloudConfig{
-			Hostname:  hostname,
-			APIToken:  apiToken,
-			AccountID: accountID,
-		}
+		dbtCloudClient := dbtcloud.NewDbtCloudHTTPClient(hostname, apiToken, accountID)
 
 		for _, resourceType := range resourceTypes {
 
 			switch resourceType {
 
 			case "dbtcloud_project":
-				jsonStructData = dbtcloud.GetProjects(config)
+				jsonStructData = dbtCloudClient.GetProjects()
 
 			case "dbtcloud_project_connection":
-				jsonStructData = dbtcloud.GetProjects(config)
+				jsonStructData = dbtCloudClient.GetProjects()
 
 			case "dbtcloud_project_repository":
-				jsonStructData = dbtcloud.GetProjects(config)
+				jsonStructData = dbtCloudClient.GetProjects()
 
 			case "dbtcloud_job":
-				jsonStructData = dbtcloud.GetJobs(config)
+				jsonStructData = dbtCloudClient.GetJobs()
 
 			case "dbtcloud_environment":
-				jsonStructData = dbtcloud.GetEnvironments(config)
+				jsonStructData = dbtCloudClient.GetEnvironments()
 
 			case "dbtcloud_environment_variable":
-				mapEnvVars := dbtcloud.GetEnvironmentVariables(config, listFilterProjects)
+				mapEnvVars := dbtCloudClient.GetEnvironmentVariables(listFilterProjects)
 
 				listEnvVars := []any{}
 				for projectID, envVars := range mapEnvVars {
@@ -88,13 +84,13 @@ func runImport() func(cmd *cobra.Command, args []string) {
 				jsonStructData = listEnvVars
 
 			case "dbtcloud_group":
-				jsonStructData = dbtcloud.GetGroups(config)
+				jsonStructData = dbtCloudClient.GetGroups()
 
 			case "dbtcloud_snowflake_credential":
-				jsonStructData = dbtcloud.GetSnowflakeCredentials(config)
+				jsonStructData = dbtCloudClient.GetSnowflakeCredentials()
 
 			case "dbtcloud_repository":
-				jsonStructData = dbtcloud.GetRepositories(config)
+				jsonStructData = dbtCloudClient.GetRepositories()
 
 			default:
 				fmt.Fprintf(cmd.OutOrStderr(), "%q is not yet supported for state import", resourceType)

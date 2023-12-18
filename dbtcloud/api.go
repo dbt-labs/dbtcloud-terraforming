@@ -44,17 +44,37 @@ type DbtCloudConfig struct {
 	AccountID string
 }
 
-func GetEndpoint(url string, config DbtCloudConfig) (error, []byte) {
+type DbtCloudHTTPClient struct {
+	Client    *http.Client
+	Hostname  string
+	APIToken  string
+	AccountID string
+}
+
+func NewDbtCloudHTTPClient(hostname, apiToken, accountID string) *DbtCloudHTTPClient {
+	return &DbtCloudHTTPClient{
+		Client:    &http.Client{},
+		Hostname:  hostname,
+		APIToken:  apiToken,
+		AccountID: accountID,
+	}
+}
+
+func (c *DbtCloudHTTPClient) Do(req *http.Request) (*http.Response, error) {
+	// Add default headers to the request
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.APIToken))
+
+	// Perform the request
+	return c.Client.Do(req)
+}
+
+func (c *DbtCloudHTTPClient) GetEndpoint(url string) (error, []byte) {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		log.Fatalf("Error creating a new request: %v", err)
 	}
-	// Add headers to the request
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", config.APIToken))
 
-	// Create an HTTP client and make the request
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := c.Do(req)
 	if err != nil {
 		log.Fatalf("Error fetching URL %v: %v", url, err)
 	}
@@ -69,9 +89,9 @@ func GetEndpoint(url string, config DbtCloudConfig) (error, []byte) {
 	return err, jsonPayload
 }
 
-func GetSingleData(config DbtCloudConfig, url string) any {
+func (c *DbtCloudHTTPClient) GetSingleData(url string) any {
 
-	err, jsonPayload := GetEndpoint(url, config)
+	err, jsonPayload := c.GetEndpoint(url)
 	var response SingleResponse
 
 	err = json.Unmarshal(jsonPayload, &response)
@@ -82,10 +102,10 @@ func GetSingleData(config DbtCloudConfig, url string) any {
 	return response.Data
 }
 
-func GetData(config DbtCloudConfig, url string) []any {
+func (c *DbtCloudHTTPClient) GetData(url string) []any {
 
 	// get the first page
-	err, jsonPayload := GetEndpoint(url, config)
+	err, jsonPayload := c.GetEndpoint(url)
 	var response Response
 
 	err = json.Unmarshal(jsonPayload, &response)
@@ -107,7 +127,7 @@ func GetData(config DbtCloudConfig, url string) []any {
 			newURL = fmt.Sprintf("%s?offset=%d", url, count)
 		}
 
-		err, jsonPayload := GetEndpoint(newURL, config)
+		err, jsonPayload := c.GetEndpoint(newURL)
 		var response Response
 
 		err = json.Unmarshal(jsonPayload, &response)
@@ -128,9 +148,9 @@ func GetData(config DbtCloudConfig, url string) []any {
 	return allResponses
 }
 
-func GetDataEnvVars(config DbtCloudConfig, url string) map[string]any {
+func (c *DbtCloudHTTPClient) GetDataEnvVars(url string) map[string]any {
 
-	err, jsonPayload := GetEndpoint(url, config)
+	err, jsonPayload := c.GetEndpoint(url)
 
 	var response EnvVarResponse
 
@@ -142,41 +162,42 @@ func GetDataEnvVars(config DbtCloudConfig, url string) map[string]any {
 	return response.Data.Variables
 }
 
-func GetProjects(config DbtCloudConfig) []any {
-	url := fmt.Sprintf("https://%s/api/v2/accounts/%s/projects/", config.Hostname, config.AccountID)
+func (c *DbtCloudHTTPClient) GetProjects() []any {
 
-	return GetData(config, url)
+	url := fmt.Sprintf("https://%s/api/v2/accounts/%s/projects/", c.Hostname, c.AccountID)
+
+	return c.GetData(url)
 }
 
-func GetJobs(config DbtCloudConfig) []any {
-	url := fmt.Sprintf("https://%s/api/v2/accounts/%s/jobs/", config.Hostname, config.AccountID)
+func (c *DbtCloudHTTPClient) GetJobs() []any {
+	url := fmt.Sprintf("https://%s/api/v2/accounts/%s/jobs/", c.Hostname, c.AccountID)
 
-	return GetData(config, url)
+	return c.GetData(url)
 }
 
-func GetEnvironments(config DbtCloudConfig) []any {
-	url := fmt.Sprintf("https://%s/api/v3/accounts/%s/environments/", config.Hostname, config.AccountID)
+func (c *DbtCloudHTTPClient) GetEnvironments() []any {
+	url := fmt.Sprintf("https://%s/api/v3/accounts/%s/environments/", c.Hostname, c.AccountID)
 
-	return GetData(config, url)
+	return c.GetData(url)
 }
 
-func GetRepositories(config DbtCloudConfig) []any {
-	url := fmt.Sprintf("https://%s/api/v2/accounts/%s/repositories/", config.Hostname, config.AccountID)
+func (c *DbtCloudHTTPClient) GetRepositories() []any {
+	url := fmt.Sprintf("https://%s/api/v2/accounts/%s/repositories/", c.Hostname, c.AccountID)
 
-	return GetData(config, url)
+	return c.GetData(url)
 }
 
-func GetGroups(config DbtCloudConfig) []any {
-	url := fmt.Sprintf("https://%s/api/v3/accounts/%s/groups/", config.Hostname, config.AccountID)
+func (c *DbtCloudHTTPClient) GetGroups() []any {
+	url := fmt.Sprintf("https://%s/api/v3/accounts/%s/groups/", c.Hostname, c.AccountID)
 
-	return GetData(config, url)
+	return c.GetData(url)
 }
 
-func GetEnvironmentVariables(config DbtCloudConfig, listProjects []int) map[int]any {
+func (c *DbtCloudHTTPClient) GetEnvironmentVariables(listProjects []int) map[int]any {
 
 	allEnvVars := map[int]any{}
 
-	projects := GetProjects(config)
+	projects := c.GetProjects()
 	for _, project := range projects {
 		projectTyped := project.(map[string]interface{})
 		projectID := int(projectTyped["id"].(float64))
@@ -185,15 +206,15 @@ func GetEnvironmentVariables(config DbtCloudConfig, listProjects []int) map[int]
 			continue
 		}
 
-		url := fmt.Sprintf("https://%s/api/v3/accounts/%s/projects/%d/environment-variables/environment/", config.Hostname, config.AccountID, projectID)
-		allEnvVars[projectID] = GetDataEnvVars(config, url)
+		url := fmt.Sprintf("https://%s/api/v3/accounts/%s/projects/%d/environment-variables/environment/", c.Hostname, c.AccountID, projectID)
+		allEnvVars[projectID] = c.GetDataEnvVars(url)
 	}
 	return allEnvVars
 }
 
-func GetConnections(config DbtCloudConfig, listProjects []int, warehouses []string) []any {
+func (c *DbtCloudHTTPClient) GetConnections(listProjects []int, warehouses []string) []any {
 
-	projects := GetProjects(config)
+	projects := c.GetProjects()
 	connections := []any{}
 
 	// we loop through all the projects to only get the active connections
@@ -216,28 +237,28 @@ func GetConnections(config DbtCloudConfig, listProjects []int, warehouses []stri
 			continue
 		}
 
-		url := fmt.Sprintf("https://%s/api/v3/accounts/%s/projects/%d/connections/%0.f/", config.Hostname, config.AccountID, projectID, projectConnectionTyped["id"].(float64))
-		connection := GetSingleData(config, url)
+		url := fmt.Sprintf("https://%s/api/v3/accounts/%s/projects/%d/connections/%0.f/", c.Hostname, c.AccountID, projectID, projectConnectionTyped["id"].(float64))
+		connection := c.GetSingleData(url)
 		connections = append(connections, connection)
 	}
 
 	return connections
 }
 
-func GetBigQueryConnections(config DbtCloudConfig, listProjects []int) []any {
-	return GetConnections(config, listProjects, []string{"bigquery"})
+func (c *DbtCloudHTTPClient) GetBigQueryConnections(listProjects []int) []any {
+	return c.GetConnections(listProjects, []string{"bigquery"})
 }
 
-func GetSnowflakeCredentials(config DbtCloudConfig) []any {
-	return GetWarehouseCredentials(config, "snowflake")
+func (c *DbtCloudHTTPClient) GetSnowflakeCredentials() []any {
+	return c.GetWarehouseCredentials("snowflake")
 }
 
-func GetBigQueryCredentials(config DbtCloudConfig) []any {
-	return GetWarehouseCredentials(config, "bigquery")
+func (c *DbtCloudHTTPClient) GetBigQueryCredentials() []any {
+	return c.GetWarehouseCredentials("bigquery")
 }
 
-func GetWarehouseCredentials(config DbtCloudConfig, warehouse string) []any {
-	listCredentials := GetCredentials(config)
+func (c *DbtCloudHTTPClient) GetWarehouseCredentials(warehouse string) []any {
+	listCredentials := c.GetCredentials()
 	warehouseCredentials := []any{}
 
 	for _, credential := range listCredentials {
@@ -253,18 +274,18 @@ func GetWarehouseCredentials(config DbtCloudConfig, warehouse string) []any {
 	return warehouseCredentials
 }
 
-func GetCredentials(config DbtCloudConfig) []any {
-	url := fmt.Sprintf("https://%s/api/v3/accounts/%s/credentials/", config.Hostname, config.AccountID)
+func (c *DbtCloudHTTPClient) GetCredentials() []any {
+	url := fmt.Sprintf("https://%s/api/v3/accounts/%s/credentials/", c.Hostname, c.AccountID)
 
 	// we need to remove all the credentials mapped to projects that are not active
 	// those stay dangling in dbt Cloud
 
-	allProjects := GetProjects(config)
+	allProjects := c.GetProjects()
 	allProjectIDs := lo.Map(allProjects, func(project any, index int) int {
 		return int(project.(map[string]interface{})["id"].(float64))
 	})
 
-	allCredentials := GetData(config, url)
+	allCredentials := c.GetData(url)
 	validCredentials := []any{}
 
 	for _, credential := range allCredentials {
