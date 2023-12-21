@@ -20,3 +20,7 @@
 testdata/
 scripts/
 Makefile
+
+# terraform files
+.terraform/
+.terraform.lock.hcl

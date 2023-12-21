@@ -433,6 +433,11 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 						connectionTyped[detailKey] = detailVal
 					}
 
+					// we set the project IDs to the correct values
+					// unfortunately project ID can mean a dbt Cloud project or a GCP project
+					connectionTyped["project_id"] = projectID
+					connectionTyped["gcp_project_id"] = connectionDetailsTyped["project_id"]
+
 					// we add the secure fields
 					connectionTyped["private_key"] = "---TBD---"
 					connectionTyped["application_id"] = "---TBD if using OAuth, otherwise delete---"
