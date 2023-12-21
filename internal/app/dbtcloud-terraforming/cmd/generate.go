@@ -315,6 +315,12 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 				mapEnvVars := dbtCloudClient.GetEnvironmentVariables(listFilterProjects)
 				listEnvVars := []any{}
 
+				cacheEnvs := []any{}
+				// if we want to dynamically link dbtcloud_environment, we need to cache the environments so that we can map them in depends_on
+				if linkResource("dbtcloud_environment") {
+					cacheEnvs = dbtCloudClient.GetEnvironments(listFilterProjects)
+				}
+
 				for projectID, envVars := range mapEnvVars {
 					for envVarName, envVarValues := range envVars.(map[string]any) {
 						envDetails := map[string]any{}
@@ -324,21 +330,40 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 
 						if linkResource("dbtcloud_project") {
 							envDetails["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%d.id", projectID)
-							// TODO: Add the hard coded dependencies with the environments
 						}
 
 						// we need to make int a map[string]any to work with the matching strategy
 						collectEnvValues := map[string]any{}
 
 						envVarValuesTyped := envVarValues.(map[string]any)
+						listEnvNames := []string{}
 						for envName, envValues := range envVarValuesTyped {
+
+							if envName != "project" {
+								listEnvNames = append(listEnvNames, envName)
+							}
 
 							if envValues != nil {
 								envValuesTyped := envValues.(map[string]any)
 								collectEnvValues[envName] = envValuesTyped["value"].(string)
-								log.Warn(envName, envValues)
+
 							}
 
+						}
+
+						if linkResource("dbtcloud_environment") {
+							matchingEnvs := lo.Filter(cacheEnvs, func(i any, index int) bool {
+								typedEnv := i.(map[string]any)
+								sameProject := typedEnv["project_id"].(float64) == float64(projectID)
+								envNameInList := lo.Contains(listEnvNames, (i.(map[string]any)["name"].(string)))
+								return sameProject && envNameInList
+							})
+
+							listDependsOn := []string{}
+							for _, matchingEnv := range matchingEnvs {
+								listDependsOn = append(listDependsOn, fmt.Sprintf("dbtcloud_environment.terraform_managed_resource_%0.f", matchingEnv.(map[string]any)["id"].(float64)))
+							}
+							envDetails["depends_on"] = listDependsOn
 						}
 						envDetails["environment_values"] = collectEnvValues
 
