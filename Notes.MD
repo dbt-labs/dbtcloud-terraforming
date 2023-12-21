@@ -13,21 +13,21 @@ Renaming folders
 Set env vars
 
 ```sh
-export DBT_CLOUD_API_TOKEN=<token>
+export DBT_CLOUD_TOKEN=<token>
 export DBT_CLOUD_ACCOUNT_ID=123
-export DBT_CLOUD_HOSTNAME="emea.dbt.com"
+export DBT_CLOUD_HOST_URL="http://emea.dbt.com/api"
 ```
 
 ### to use directly
 
 ```sh
-go run cmd/dbtcloud-terraforming/main.go generate --resource-type dbtcloud_environment
-go run cmd/dbtcloud-terraforming/main.go import --resource-type dbtcloud_environment
+go run cmd/dbtcloud-terraforming/main.go generate --resource-types dbtcloud_environment
+go run cmd/dbtcloud-terraforming/main.go import --resource-types dbtcloud_environment
 ```
 
 ### to build and use
 
 ```sh
 go build -o dbtcloud-terraforming cmd/dbtcloud-terraforming/main.go
-./dbtcloud-terraforming generate --resource-type dbtcloud_job 
+./dbtcloud-terraforming generate --resource-types dbtcloud_job 
 ```
