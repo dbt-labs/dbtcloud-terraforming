@@ -9,11 +9,10 @@ import (
 	"sort"
 	"strings"
 
-	cloudflare "github.com/cloudflare/cloudflare-go"
+	"github.com/dbt-cloud/dbtcloud-terraforming/dbtcloud"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	tfjson "github.com/hashicorp/terraform-json"
-	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/zclconf/go-cty/cty"
@@ -80,61 +79,34 @@ func testDataFile(filename string) string {
 }
 
 func sharedPreRun(cmd *cobra.Command, args []string) {
+
 	accountID = viper.GetString("account")
-	zoneID = viper.GetString("zone")
-	hostname = viper.GetString("hostname")
-
-	if accountID != "" && zoneID != "" {
-		log.Fatal("--account and --zone are mutually exclusive, support for both is deprecated")
+	apiToken = viper.GetString("token")
+	hostURL = viper.GetString("host-url")
+	if hostURL == "" {
+		hostURL = "https://cloud.getdbt.com/api"
 	}
 
-	if apiToken = viper.GetString("token"); apiToken == "" {
-		if apiEmail = viper.GetString("email"); apiEmail == "" {
-			log.Error("'email' must be set.")
-		}
+	// TODO Remove the following or add dbt Cloud specific tests
+	// if accountID != "" && zoneID != "" {
+	// 	log.Fatal("--account and --zone are mutually exclusive, support for both is deprecated")
+	// }
 
-		if apiKey = viper.GetString("key"); apiKey == "" {
-			log.Error("either -t/--token or -k/--key must be set.")
-		}
+	// if apiToken = viper.GetString("token"); apiToken == "" {
+	// 	if apiEmail = viper.GetString("email"); apiEmail == "" {
+	// 		log.Error("'email' must be set.")
+	// 	}
 
-		log.WithFields(logrus.Fields{
-			"email":      apiEmail,
-			"zone_id":    zoneID,
-			"account_id": accountID,
-		}).Debug("initializing cloudflare-go")
-	} else {
-		log.WithFields(logrus.Fields{
-			"zone_id":    zoneID,
-			"account_Id": accountID,
-		}).Debug("initializing cloudflare-go with API Token")
-	}
-
-	var options []cloudflare.Option
-
-	if hostname != "" {
-		options = append(options, cloudflare.BaseURL("https://"+hostname+"/client/v4"))
-	}
-
-	if verbose {
-		options = append(options, cloudflare.Debug(true))
-	}
-
-	var err error
+	// 	if apiKey = viper.GetString("key"); apiKey == "" {
+	// 		log.Error("either -t/--token or -k/--key must be set.")
+	// 	}
 
 	// Don't initialise a client in CI as this messes with VCR and the ability to
 	// mock out the HTTP interactions.
+
 	if os.Getenv("CI") != "true" {
-		var useToken = apiToken != ""
 
-		if useToken {
-			api, err = cloudflare.NewWithAPIToken(apiToken, options...)
-		} else {
-			api, err = cloudflare.New(apiKey, apiEmail, options...)
-		}
-
-		if err != nil {
-			log.Fatal(err)
-		}
+		dbtCloudClient = dbtcloud.NewDbtCloudHTTPClient(hostURL, apiToken, accountID, nil)
 	}
 }
 

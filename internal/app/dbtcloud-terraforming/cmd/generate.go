@@ -5,7 +5,6 @@ import (
 	"os"
 	"sort"
 
-	"github.com/dbt-cloud/dbtcloud-terraforming/dbtcloud"
 	"github.com/hashicorp/go-version"
 	"github.com/hashicorp/hc-install/product"
 	"github.com/hashicorp/hc-install/releases"
@@ -19,8 +18,7 @@ import (
 	"fmt"
 )
 
-var resourceTypes []string
-var linkResources = true
+var resourceTypes, listLinkedResources []string
 
 func init() {
 	rootCmd.AddCommand(generateCmd)
@@ -33,18 +31,19 @@ var generateCmd = &cobra.Command{
 	PreRun: sharedPreRun,
 }
 
+func linkResource(resourceType string) bool {
+	if len(listLinkedResources) == 0 {
+		return false
+	}
+	return lo.Contains(listLinkedResources, resourceType) || listLinkedResources[0] == "all"
+}
+
 func generateResources() func(cmd *cobra.Command, args []string) {
 	return func(cmd *cobra.Command, args []string) {
-		if resourceTypes == nil {
+		if len(resourceTypes) == 0 {
 			log.Fatal("you must define a resource type to generate")
 		}
 
-		accountID = viper.GetString("account")
-		apiToken = viper.GetString("token")
-		hostname = viper.GetString("hostname")
-		if hostname == "" {
-			hostname = "cloud.getdbt.com"
-		}
 		listFilterProjects = viper.GetIntSlice("projects")
 
 		var execPath, workingDir string
@@ -92,8 +91,6 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 		if s == nil {
 			log.Fatal("failed to detect provider installation")
 		}
-
-		dbtCloudClient := dbtcloud.NewDbtCloudHTTPClient(hostname, apiToken, accountID)
 
 		for _, resourceType := range resourceTypes {
 
@@ -146,7 +143,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 					projectTyped["project_id"] = projectTyped["id"].(float64)
 					jsonStructData = append(jsonStructData, projectTyped)
 
-					if linkResources {
+					if linkResource("dbtcloud_project") {
 						projectID := projectTyped["project_id"]
 						projectTyped["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%0.f.id", projectID)
 					}
@@ -202,10 +199,11 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 
 					jobTyped["triggers"] = triggers
 
-					if linkResources {
+					if linkResource("dbtcloud_environment") {
 						environmentID := jobTyped["environment_id"].(float64)
 						jobTyped["environment_id"] = fmt.Sprintf("dbtcloud_environment.terraform_managed_resource_%0.f.environment_id", environmentID)
-
+					}
+					if linkResource("dbtcloud_project") {
 						projectID := jobTyped["project_id"].(float64)
 						jobTyped["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%0.f.id", projectID)
 					}
@@ -227,13 +225,16 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 						continue
 					}
 
-					if linkResources {
+					if linkResource("dbtcloud_project") {
 						environmentsTyped["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%0.f.id", projectID)
 					}
 
-					// handle the case when credentials_id is not a float because it is null
-					if credentials_id, ok := environmentsTyped["credentials_id"].(float64); ok {
-						environmentsTyped["credential_id"] = credentials_id
+					// handle the case when credentialID is not a float because it is null
+					if credentialID, ok := environmentsTyped["credentials_id"].(float64); ok {
+						environmentsTyped["credential_id"] = credentialID
+						if linkResource("dbtcloud_credential") {
+							environmentsTyped["credential_id"] = fmt.Sprintf("dbtcloud_credential.terraform_managed_resource_%0.f.id", credentialID)
+						}
 					}
 
 					jsonStructData = append(jsonStructData, environmentsTyped)
@@ -253,7 +254,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 						continue
 					}
 
-					if linkResources {
+					if linkResource("dbtcloud_project") {
 						repositoryTyped["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%0.f.id", projectID)
 					}
 					jsonStructData = append(jsonStructData, repositoryTyped)
@@ -274,10 +275,11 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 					}
 					jsonStructData = append(jsonStructData, projectTyped)
 
-					if linkResources {
+					if linkResource("dbtcloud_project") {
 						projectID := projectTyped["project_id"]
 						projectTyped["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%0.f.id", projectID)
-
+					}
+					if linkResource("dbtcloud_repository") {
 						repositoryID := projectTyped["repository_id"]
 						projectTyped["repository_id"] = fmt.Sprintf("dbtcloud_repository.terraform_managed_resource_%0.f.repository_id", repositoryID)
 					}
@@ -303,7 +305,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 						continue
 					}
 
-					if linkResources {
+					if linkResource("dbtcloud_project") {
 
 						groupPermissions, ok := groupTyped["group_permissions"].([]any)
 						if !ok {
@@ -337,7 +339,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 						envDetails["id"] = fmt.Sprintf("%d_%s", projectID, envVarName)
 						envDetails["project_id"] = projectID
 
-						if linkResources {
+						if linkResource("dbtcloud_project") {
 							envDetails["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%d.id", projectID)
 							// TODO: Add the hard coded dependencies with the environments
 						}
@@ -386,7 +388,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 						credentialTyped["private_key_passphrase"] = "---TBD---"
 					}
 
-					if linkResources {
+					if linkResource("dbtcloud_project") {
 						credentialTyped["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%0.f.id", projectID)
 					}
 					jsonStructData = append(jsonStructData, credentialTyped)
@@ -409,7 +411,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 					credentialTyped["num_threads"] = credentialTyped["threads"]
 					credentialTyped["dataset"] = credentialTyped["schema"]
 
-					if linkResources {
+					if linkResource("dbtcloud_project") {
 						credentialTyped["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%0.f.id", projectID)
 					}
 					jsonStructData = append(jsonStructData, credentialTyped)
@@ -436,7 +438,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 					connectionTyped["application_id"] = "---TBD if using OAuth, otherwise delete---"
 					connectionTyped["private_key"] = "---TBD if using OAuth, otherwise delete---"
 
-					if linkResources {
+					if linkResource("dbtcloud_project") {
 						connectionTyped["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%0.f.id", projectID)
 					}
 

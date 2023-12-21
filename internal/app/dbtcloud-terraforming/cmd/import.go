@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/dbt-cloud/dbtcloud-terraforming/dbtcloud"
 	"github.com/hashicorp/hcl/v2/hclwrite"
+	"github.com/samber/lo"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/zclconf/go-cty/cty"
@@ -42,12 +42,10 @@ func runImport() func(cmd *cobra.Command, args []string) {
 
 		accountID = viper.GetString("account")
 		apiToken = viper.GetString("token")
-		hostname = viper.GetString("hostname")
-		if hostname == "" {
-			hostname = "cloud.getdbt.com"
+		hostURL = viper.GetString("host-url")
+		if hostURL == "" {
+			hostURL = "https://cloud.getdbt.com/api"
 		}
-
-		dbtCloudClient := dbtcloud.NewDbtCloudHTTPClient(hostname, apiToken, accountID)
 
 		for _, resourceType := range resourceTypes {
 
@@ -84,7 +82,25 @@ func runImport() func(cmd *cobra.Command, args []string) {
 				jsonStructData = listEnvVars
 
 			case "dbtcloud_group":
-				jsonStructData = dbtCloudClient.GetGroups()
+				// TODO add removal of default groups to the API call side
+				allGroups := dbtCloudClient.GetGroups()
+
+				listGroups := []any{}
+				for _, group := range allGroups {
+					groupTyped := group.(map[string]any)
+
+					defaultGroups := []string{"Owner", "Member", "Everyone"}
+
+					// we check if the group is one of the default ones
+					_, found := lo.Find(defaultGroups, func(i string) bool {
+						return i == groupTyped["name"].(string)
+					})
+					// only add if the current group doesn't match with the default ones
+					if !found {
+						listGroups = append(listGroups, group)
+					}
+				}
+				jsonStructData = listGroups
 
 			case "dbtcloud_snowflake_credential":
 				jsonStructData = dbtCloudClient.GetSnowflakeCredentials()
