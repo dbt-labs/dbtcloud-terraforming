@@ -34,7 +34,7 @@ func init() {
 
 var importCommand = &cobra.Command{
 	Use:    "import",
-	Short:  "Output `terraform import` compatible commands in order to import resources into state",
+	Short:  "Output `terraform import` compatible commands and/or import blocks (require terraform >= 1.5) in order to import resources into state",
 	Run:    runImport(),
 	PreRun: sharedPreRun,
 }

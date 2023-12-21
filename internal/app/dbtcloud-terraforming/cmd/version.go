@@ -22,7 +22,7 @@ var versionCmd = &cobra.Command{
 			gitDescribe := exec.Command("git", "describe", "--tags", "--abbrev=0")
 			gitDescribeStdout, err := gitDescribe.Output()
 			if err != nil {
-				log.Error("failed to exec to `git`")
+				gitDescribeStdout = []byte("v0.0.1")
 			}
 
 			gitSha := exec.Command("git", "rev-parse", "--short=12", "HEAD")

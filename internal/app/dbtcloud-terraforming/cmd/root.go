@@ -22,9 +22,9 @@ var terraformResourceNamePrefix = "terraform_managed_resource"
 var rootCmd = &cobra.Command{
 	Use:   "dbtcloud-terraforming",
 	Short: "Bootstrapping Terraform from existing Cloudflare account",
-	Long: `dbtcloud-terraforming is an application that allows Cloudflare users
+	Long: `dbtcloud-terraforming is an application that allows dbt Cloud users
 to be able to adopt Terraform by giving them a feasible way to get
-all of their existing Cloudflare configuration into Terraform.`,
+all of their existing dbt Cloud configuration into Terraform.`,
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
