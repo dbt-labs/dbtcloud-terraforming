@@ -88,18 +88,13 @@ func sharedPreRun(cmd *cobra.Command, args []string) {
 	}
 
 	// TODO Remove the following or add dbt Cloud specific tests
-	// if accountID != "" && zoneID != "" {
-	// 	log.Fatal("--account and --zone are mutually exclusive, support for both is deprecated")
-	// }
+	if accountID == "" {
+		log.Fatal("--account/-a or DBT_CLOUD_ACCOUNT_ID must be set")
+	}
 
-	// if apiToken = viper.GetString("token"); apiToken == "" {
-	// 	if apiEmail = viper.GetString("email"); apiEmail == "" {
-	// 		log.Error("'email' must be set.")
-	// 	}
-
-	// 	if apiKey = viper.GetString("key"); apiKey == "" {
-	// 		log.Error("either -t/--token or -k/--key must be set.")
-	// 	}
+	if apiToken == "" {
+		log.Fatal("--token/-t or DBT_CLOUD_TOKEN must be set")
+	}
 
 	// Don't initialise a client in CI as this messes with VCR and the ability to
 	// mock out the HTTP interactions.
@@ -193,7 +188,7 @@ func processBlocks(schemaBlock *tfjson.SchemaBlock, structData map[string]interf
 			if parentBlock == "" && block == "id" {
 				continue
 			}
-			if _, ok := schemaBlock.Attributes[block]; ok && (schemaBlock.Attributes[block].Optional || schemaBlock.Attributes[block].Required) {
+			if _, ok := schemaBlock.Attributes[block]; ok && (schemaBlock.Attributes[block].Optional || schemaBlock.Attributes[block].Required) || block == "depends_on" {
 				writeAttrLine(block, structData[block], parentBlock, parent)
 			}
 		}
@@ -277,11 +272,20 @@ func writeAttrLine(key string, value interface{}, parentName string, body *hclwr
 		var items []string
 		items = append(items, value.([]string)...)
 		if len(items) > 0 {
-			var vals []cty.Value
-			for _, item := range items {
-				vals = append(vals, cty.StringVal(item))
+			if key != "depends_on" {
+				var vals []cty.Value
+				for _, item := range items {
+					vals = append(vals, cty.StringVal(item))
+				}
+				body.SetAttributeValue(key, cty.ListVal(vals))
+			} else {
+				tokens := []*hclwrite.Token{{Type: hclsyntax.TokenIdent, Bytes: []byte("[\n")}}
+				for _, item := range items {
+					tokens = append(tokens, &hclwrite.Token{Type: hclsyntax.TokenIdent, Bytes: []byte(item + ",\n")})
+				}
+				tokens = append(tokens, &hclwrite.Token{Type: hclsyntax.TokenIdent, Bytes: []byte("]")})
+				body.SetAttributeRaw(key, tokens)
 			}
-			body.SetAttributeValue(key, cty.ListVal(vals))
 		}
 	case string:
 		if parentName == "query" && key == "value" && value == "" {

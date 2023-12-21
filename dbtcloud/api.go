@@ -109,6 +109,10 @@ func (c *DbtCloudHTTPClient) GetData(url string) []any {
 
 	// get the first page
 	err, jsonPayload := c.GetEndpoint(url)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	var response Response
 
 	err = json.Unmarshal(jsonPayload, &response)
