@@ -165,29 +165,71 @@ func (c *DbtCloudHTTPClient) GetDataEnvVars(url string) map[string]any {
 	return response.Data.Variables
 }
 
-func (c *DbtCloudHTTPClient) GetProjects() []any {
-
+func (c *DbtCloudHTTPClient) GetProjects(listProjects []int) []any {
 	url := fmt.Sprintf("%s/v2/accounts/%s/projects/", c.HostURL, c.AccountID)
+	allProjects := c.GetData(url)
 
-	return c.GetData(url)
+	if len(listProjects) == 0 {
+		return allProjects
+	}
+
+	filteredProjects := []any{}
+
+	for _, data := range allProjects {
+		dataTyped := data.(map[string]any)
+		projectID := dataTyped["id"].(float64)
+
+		if len(listProjects) > 0 && lo.Contains(listProjects, int(projectID)) == false {
+			continue
+		}
+		filteredProjects = append(filteredProjects, data)
+	}
+
+	return filteredProjects
 }
 
-func (c *DbtCloudHTTPClient) GetJobs() []any {
+func (c *DbtCloudHTTPClient) GetJobs(listProjects []int) []any {
 	url := fmt.Sprintf("%s/v2/accounts/%s/jobs/", c.HostURL, c.AccountID)
+	allJobs := c.GetData(url)
+	filteredJobs := filterByProject(allJobs, listProjects)
 
-	return c.GetData(url)
+	return filteredJobs
 }
 
-func (c *DbtCloudHTTPClient) GetEnvironments() []any {
+func filterByProject(allData []any, listProjects []int) []any {
+
+	// if there is no filter provided we return the data as is
+	if len(listProjects) == 0 {
+		return allData
+	}
+
+	filteredData := []any{}
+	for _, data := range allData {
+		dataTyped := data.(map[string]any)
+		projectID := dataTyped["project_id"].(float64)
+
+		if lo.Contains(listProjects, int(projectID)) == false {
+			continue
+		}
+		filteredData = append(filteredData, data)
+	}
+	return filteredData
+}
+
+func (c *DbtCloudHTTPClient) GetEnvironments(listProjects []int) []any {
 	url := fmt.Sprintf("%s/v3/accounts/%s/environments/", c.HostURL, c.AccountID)
+	allEnvironments := c.GetData(url)
+	filteredEnvironments := filterByProject(allEnvironments, listProjects)
 
-	return c.GetData(url)
+	return filteredEnvironments
 }
 
-func (c *DbtCloudHTTPClient) GetRepositories() []any {
+func (c *DbtCloudHTTPClient) GetRepositories(listProjects []int) []any {
 	url := fmt.Sprintf("%s/v2/accounts/%s/repositories/", c.HostURL, c.AccountID)
+	allRepos := c.GetData(url)
+	filteredRepos := filterByProject(allRepos, listProjects)
 
-	return c.GetData(url)
+	return filteredRepos
 }
 
 func (c *DbtCloudHTTPClient) GetGroups() []any {
@@ -200,7 +242,7 @@ func (c *DbtCloudHTTPClient) GetEnvironmentVariables(listProjects []int) map[int
 
 	allEnvVars := map[int]any{}
 
-	projects := c.GetProjects()
+	projects := c.GetProjects(listProjects)
 	for _, project := range projects {
 		projectTyped := project.(map[string]interface{})
 		projectID := int(projectTyped["id"].(float64))
@@ -217,7 +259,7 @@ func (c *DbtCloudHTTPClient) GetEnvironmentVariables(listProjects []int) map[int
 
 func (c *DbtCloudHTTPClient) GetConnections(listProjects []int, warehouses []string) []any {
 
-	projects := c.GetProjects()
+	projects := c.GetProjects(listProjects)
 	connections := []any{}
 
 	// we loop through all the projects to only get the active connections
@@ -252,16 +294,16 @@ func (c *DbtCloudHTTPClient) GetBigQueryConnections(listProjects []int) []any {
 	return c.GetConnections(listProjects, []string{"bigquery"})
 }
 
-func (c *DbtCloudHTTPClient) GetSnowflakeCredentials() []any {
-	return c.GetWarehouseCredentials("snowflake")
+func (c *DbtCloudHTTPClient) GetSnowflakeCredentials(listProjects []int) []any {
+	return c.GetWarehouseCredentials(listProjects, "snowflake")
 }
 
-func (c *DbtCloudHTTPClient) GetBigQueryCredentials() []any {
-	return c.GetWarehouseCredentials("bigquery")
+func (c *DbtCloudHTTPClient) GetBigQueryCredentials(listProjects []int) []any {
+	return c.GetWarehouseCredentials(listProjects, "bigquery")
 }
 
-func (c *DbtCloudHTTPClient) GetWarehouseCredentials(warehouse string) []any {
-	listCredentials := c.GetCredentials()
+func (c *DbtCloudHTTPClient) GetWarehouseCredentials(listProjects []int, warehouse string) []any {
+	listCredentials := c.GetCredentials(listProjects)
 	warehouseCredentials := []any{}
 
 	for _, credential := range listCredentials {
@@ -277,13 +319,13 @@ func (c *DbtCloudHTTPClient) GetWarehouseCredentials(warehouse string) []any {
 	return warehouseCredentials
 }
 
-func (c *DbtCloudHTTPClient) GetCredentials() []any {
+func (c *DbtCloudHTTPClient) GetCredentials(listProjects []int) []any {
 	url := fmt.Sprintf("%s/v3/accounts/%s/credentials/", c.HostURL, c.AccountID)
 
 	// we need to remove all the credentials mapped to projects that are not active
 	// those stay dangling in dbt Cloud
 
-	allProjects := c.GetProjects()
+	allProjects := c.GetProjects(listProjects)
 	allProjectIDs := lo.Map(allProjects, func(project any, index int) int {
 		return int(project.(map[string]interface{})["id"].(float64))
 	})

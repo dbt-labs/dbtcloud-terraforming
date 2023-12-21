@@ -54,19 +54,19 @@ func runImport() func(cmd *cobra.Command, args []string) {
 			switch resourceType {
 
 			case "dbtcloud_project":
-				jsonStructData = dbtCloudClient.GetProjects()
+				jsonStructData = dbtCloudClient.GetProjects(listFilterProjects)
 
 			case "dbtcloud_project_connection":
-				jsonStructData = dbtCloudClient.GetProjects()
+				jsonStructData = dbtCloudClient.GetProjects(listFilterProjects)
 
 			case "dbtcloud_project_repository":
-				jsonStructData = dbtCloudClient.GetProjects()
+				jsonStructData = dbtCloudClient.GetProjects(listFilterProjects)
 
 			case "dbtcloud_job":
-				jsonStructData = dbtCloudClient.GetJobs()
+				jsonStructData = dbtCloudClient.GetJobs(listFilterProjects)
 
 			case "dbtcloud_environment":
-				jsonStructData = dbtCloudClient.GetEnvironments()
+				jsonStructData = dbtCloudClient.GetEnvironments(listFilterProjects)
 
 			case "dbtcloud_environment_variable":
 				mapEnvVars := dbtCloudClient.GetEnvironmentVariables(listFilterProjects)
@@ -105,13 +105,13 @@ func runImport() func(cmd *cobra.Command, args []string) {
 				jsonStructData = listGroups
 
 			case "dbtcloud_snowflake_credential":
-				jsonStructData = dbtCloudClient.GetSnowflakeCredentials()
+				jsonStructData = dbtCloudClient.GetSnowflakeCredentials(listFilterProjects)
 
 			case "dbtcloud_bigquery_credential":
-				jsonStructData = dbtCloudClient.GetBigQueryCredentials()
+				jsonStructData = dbtCloudClient.GetBigQueryCredentials(listFilterProjects)
 
 			case "dbtcloud_repository":
-				jsonStructData = dbtCloudClient.GetRepositories()
+				jsonStructData = dbtCloudClient.GetRepositories(listFilterProjects)
 
 			case "dbtcloud_bigquery_connection":
 				jsonStructData = dbtCloudClient.GetBigQueryConnections(listFilterProjects)

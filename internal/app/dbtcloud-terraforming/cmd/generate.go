@@ -131,12 +131,12 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 			switch resourceType {
 			case "dbtcloud_project":
 
-				jsonStructData = dbtCloudClient.GetProjects()
+				jsonStructData = dbtCloudClient.GetProjects(listFilterProjects)
 				resourceCount = len(jsonStructData)
 
 			case "dbtcloud_project_connection":
 
-				listProjects := dbtCloudClient.GetProjects()
+				listProjects := dbtCloudClient.GetProjects(listFilterProjects)
 
 				for _, project := range listProjects {
 					projectTyped := project.(map[string]any)
@@ -153,15 +153,10 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 
 			case "dbtcloud_job":
 
-				jobs := dbtCloudClient.GetJobs()
+				jobs := dbtCloudClient.GetJobs(listFilterProjects)
 
 				for _, job := range jobs {
 					jobTyped := job.(map[string]any)
-
-					projectID := jobTyped["project_id"].(float64)
-					if len(listFilterProjects) > 0 && lo.Contains(listFilterProjects, int(projectID)) == false {
-						continue
-					}
 
 					jobSettings := jobTyped["settings"].(map[string]any)
 					jobTyped["num_threads"] = jobSettings["threads"].(float64)
@@ -214,16 +209,11 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 
 			case "dbtcloud_environment":
 
-				listEnvironments := dbtCloudClient.GetEnvironments()
+				listEnvironments := dbtCloudClient.GetEnvironments(listFilterProjects)
 
 				for _, environment := range listEnvironments {
 					environmentsTyped := environment.(map[string]any)
 					projectID := environmentsTyped["project_id"].(float64)
-
-					// we skip if a project list is defined and the project is not in the list
-					if len(listFilterProjects) > 0 && lo.Contains(listFilterProjects, int(projectID)) == false {
-						continue
-					}
 
 					if linkResource("dbtcloud_project") {
 						environmentsTyped["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%0.f.id", projectID)
@@ -244,16 +234,12 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 
 			case "dbtcloud_repository":
 
-				listRepositories := dbtCloudClient.GetRepositories()
+				listRepositories := dbtCloudClient.GetRepositories(listFilterProjects)
 
 				for _, repository := range listRepositories {
 					repositoryTyped := repository.(map[string]any)
 
 					projectID := repositoryTyped["project_id"].(float64)
-					if len(listFilterProjects) > 0 && lo.Contains(listFilterProjects, int(projectID)) == false {
-						continue
-					}
-
 					if linkResource("dbtcloud_project") {
 						repositoryTyped["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%0.f.id", projectID)
 					}
@@ -264,15 +250,12 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 
 			case "dbtcloud_project_repository":
 
-				listProjects := dbtCloudClient.GetProjects()
+				listProjects := dbtCloudClient.GetProjects(listFilterProjects)
 
 				for _, project := range listProjects {
 					projectTyped := project.(map[string]any)
 					projectID := projectTyped["id"].(float64)
 					projectTyped["project_id"] = projectID
-					if len(listFilterProjects) > 0 && lo.Contains(listFilterProjects, int(projectID)) == false {
-						continue
-					}
 					jsonStructData = append(jsonStructData, projectTyped)
 
 					if linkResource("dbtcloud_project") {
@@ -367,17 +350,12 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 				resourceCount = len(jsonStructData)
 
 			case "dbtcloud_snowflake_credential":
-				listCredentials := dbtCloudClient.GetSnowflakeCredentials()
+				listCredentials := dbtCloudClient.GetSnowflakeCredentials(listFilterProjects)
 
 				for _, credential := range listCredentials {
 					credentialTyped := credential.(map[string]any)
 
-					// we filter the correct projects if need be
 					projectID := credentialTyped["project_id"].(float64)
-					if len(listFilterProjects) > 0 && lo.Contains(listFilterProjects, int(projectID)) == false {
-						continue
-					}
-
 					credentialTyped["num_threads"] = credentialTyped["threads"]
 
 					switch credentialTyped["auth_type"] {
@@ -397,17 +375,12 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 				resourceCount = len(jsonStructData)
 
 			case "dbtcloud_bigquery_credential":
-				listCredentials := dbtCloudClient.GetBigQueryCredentials()
+				listCredentials := dbtCloudClient.GetBigQueryCredentials(listFilterProjects)
 
 				for _, credential := range listCredentials {
 					credentialTyped := credential.(map[string]any)
 
-					// we filter the correct projects if need be
 					projectID := credentialTyped["project_id"].(float64)
-					if len(listFilterProjects) > 0 && lo.Contains(listFilterProjects, int(projectID)) == false {
-						continue
-					}
-
 					credentialTyped["num_threads"] = credentialTyped["threads"]
 					credentialTyped["dataset"] = credentialTyped["schema"]
 
