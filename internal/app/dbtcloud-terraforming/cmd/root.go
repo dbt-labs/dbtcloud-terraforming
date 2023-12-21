@@ -2,6 +2,7 @@ package cmd
 
 import (
 	cloudflare "github.com/cloudflare/cloudflare-go"
+	"github.com/dbt-cloud/dbtcloud-terraforming/dbtcloud"
 	homedir "github.com/mitchellh/go-homedir"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -9,10 +10,11 @@ import (
 )
 
 var log = logrus.New()
-var cfgFile, zoneID, hostname, apiEmail, apiKey, apiToken, accountID, terraformInstallPath, terraformBinaryPath string
+var cfgFile, zoneID, hostURL, apiEmail, apiKey, apiToken, accountID, terraformInstallPath, terraformBinaryPath string
 var listFilterProjects []int
 var verbose, useModernImportBlock bool
 var api *cloudflare.API
+var dbtCloudClient *dbtcloud.DbtCloudHTTPClient
 var terraformImportCmdPrefix = "terraform import"
 var terraformResourceNamePrefix = "terraform_managed_resource"
 
@@ -63,15 +65,15 @@ func init() {
 	if err = viper.BindPFlag("token", rootCmd.PersistentFlags().Lookup("token")); err != nil {
 		log.Fatal(err)
 	}
-	if err = viper.BindEnv("token", "DBT_CLOUD_API_TOKEN"); err != nil {
+	if err = viper.BindEnv("token", "DBT_CLOUD_TOKEN"); err != nil {
 		log.Fatal(err)
 	}
 
-	rootCmd.PersistentFlags().StringVarP(&hostname, "hostname", "", "", "Hostname to use to query the API")
-	if err = viper.BindPFlag("hostname", rootCmd.PersistentFlags().Lookup("hostname")); err != nil {
+	rootCmd.PersistentFlags().StringVarP(&hostURL, "host-url", "", "", "Host URL to use to query the API, includes the /api part")
+	if err = viper.BindPFlag("host-url", rootCmd.PersistentFlags().Lookup("host-url")); err != nil {
 		log.Fatal(err)
 	}
-	if err = viper.BindEnv("hostname", "DBT_CLOUD_HOSTNAME"); err != nil {
+	if err = viper.BindEnv("host-url", "DBT_CLOUD_HOST_URL"); err != nil {
 		log.Fatal(err)
 	}
 
@@ -87,6 +89,8 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Specify verbose output (same as setting log level to debug)")
 
 	rootCmd.PersistentFlags().StringSliceVar(&resourceTypes, "resource-types", []string{}, "List of resource types you wish to generate")
+
+	rootCmd.PersistentFlags().StringSliceVar(&listLinkedResources, "linked-resource-types", []string{}, "List of resource types to make dependencies links to instead of using IDs. Can be set to all for linking all resources.")
 
 	rootCmd.PersistentFlags().BoolVarP(&useModernImportBlock, "modern-import-block", "", false, "Whether to generate HCL import blocks for generated resources instead of terraform import compatible CLI commands. This is only compatible with Terraform 1.5+")
 

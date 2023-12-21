@@ -46,15 +46,18 @@ type DbtCloudConfig struct {
 
 type DbtCloudHTTPClient struct {
 	Client    *http.Client
-	Hostname  string
+	HostURL   string
 	APIToken  string
 	AccountID string
 }
 
-func NewDbtCloudHTTPClient(hostname, apiToken, accountID string) *DbtCloudHTTPClient {
+func NewDbtCloudHTTPClient(hostURL, apiToken, accountID string, transport http.RoundTripper) *DbtCloudHTTPClient {
+	if transport == nil {
+		transport = http.DefaultTransport
+	}
 	return &DbtCloudHTTPClient{
-		Client:    &http.Client{},
-		Hostname:  hostname,
+		Client:    &http.Client{Transport: transport},
+		HostURL:   hostURL,
 		APIToken:  apiToken,
 		AccountID: accountID,
 	}
@@ -164,31 +167,31 @@ func (c *DbtCloudHTTPClient) GetDataEnvVars(url string) map[string]any {
 
 func (c *DbtCloudHTTPClient) GetProjects() []any {
 
-	url := fmt.Sprintf("https://%s/api/v2/accounts/%s/projects/", c.Hostname, c.AccountID)
+	url := fmt.Sprintf("%s/v2/accounts/%s/projects/", c.HostURL, c.AccountID)
 
 	return c.GetData(url)
 }
 
 func (c *DbtCloudHTTPClient) GetJobs() []any {
-	url := fmt.Sprintf("https://%s/api/v2/accounts/%s/jobs/", c.Hostname, c.AccountID)
+	url := fmt.Sprintf("%s/v2/accounts/%s/jobs/", c.HostURL, c.AccountID)
 
 	return c.GetData(url)
 }
 
 func (c *DbtCloudHTTPClient) GetEnvironments() []any {
-	url := fmt.Sprintf("https://%s/api/v3/accounts/%s/environments/", c.Hostname, c.AccountID)
+	url := fmt.Sprintf("%s/v3/accounts/%s/environments/", c.HostURL, c.AccountID)
 
 	return c.GetData(url)
 }
 
 func (c *DbtCloudHTTPClient) GetRepositories() []any {
-	url := fmt.Sprintf("https://%s/api/v2/accounts/%s/repositories/", c.Hostname, c.AccountID)
+	url := fmt.Sprintf("%s/v2/accounts/%s/repositories/", c.HostURL, c.AccountID)
 
 	return c.GetData(url)
 }
 
 func (c *DbtCloudHTTPClient) GetGroups() []any {
-	url := fmt.Sprintf("https://%s/api/v3/accounts/%s/groups/", c.Hostname, c.AccountID)
+	url := fmt.Sprintf("%s/v3/accounts/%s/groups/", c.HostURL, c.AccountID)
 
 	return c.GetData(url)
 }
@@ -206,7 +209,7 @@ func (c *DbtCloudHTTPClient) GetEnvironmentVariables(listProjects []int) map[int
 			continue
 		}
 
-		url := fmt.Sprintf("https://%s/api/v3/accounts/%s/projects/%d/environment-variables/environment/", c.Hostname, c.AccountID, projectID)
+		url := fmt.Sprintf("%s/v3/accounts/%s/projects/%d/environment-variables/environment/", c.HostURL, c.AccountID, projectID)
 		allEnvVars[projectID] = c.GetDataEnvVars(url)
 	}
 	return allEnvVars
@@ -237,7 +240,7 @@ func (c *DbtCloudHTTPClient) GetConnections(listProjects []int, warehouses []str
 			continue
 		}
 
-		url := fmt.Sprintf("https://%s/api/v3/accounts/%s/projects/%d/connections/%0.f/", c.Hostname, c.AccountID, projectID, projectConnectionTyped["id"].(float64))
+		url := fmt.Sprintf("%s/v3/accounts/%s/projects/%d/connections/%0.f/", c.HostURL, c.AccountID, projectID, projectConnectionTyped["id"].(float64))
 		connection := c.GetSingleData(url)
 		connections = append(connections, connection)
 	}
@@ -275,7 +278,7 @@ func (c *DbtCloudHTTPClient) GetWarehouseCredentials(warehouse string) []any {
 }
 
 func (c *DbtCloudHTTPClient) GetCredentials() []any {
-	url := fmt.Sprintf("https://%s/api/v3/accounts/%s/credentials/", c.Hostname, c.AccountID)
+	url := fmt.Sprintf("%s/v3/accounts/%s/credentials/", c.HostURL, c.AccountID)
 
 	// we need to remove all the credentials mapped to projects that are not active
 	// those stay dangling in dbt Cloud
