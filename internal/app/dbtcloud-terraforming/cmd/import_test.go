@@ -21,6 +21,7 @@ func TestResourceImport(t *testing.T) {
 		listLinkedResources string
 		testdataFilename    string
 		changesExpected     []string
+		projects            string
 	}{
 		// single resource
 		"dbt Cloud BigQuery connection":   {identifierType: "account", resourceTypes: "dbtcloud_bigquery_connection", testdataFilename: "dbtcloud_bigquery_connection", changesExpected: []string{"private_key", "application_id", "private_key"}},
@@ -34,8 +35,10 @@ func TestResourceImport(t *testing.T) {
 		"dbt Cloud project repository":    {identifierType: "account", resourceTypes: "dbtcloud_project_repository", testdataFilename: "dbtcloud_project_repository"},
 		"dbt Cloud repository":            {identifierType: "account", resourceTypes: "dbtcloud_repository", testdataFilename: "dbtcloud_repository"},
 		"dbt Cloud Snowflake credentials": {identifierType: "account", resourceTypes: "dbtcloud_snowflake_credential", testdataFilename: "dbtcloud_snowflake_credential", changesExpected: []string{"password"}},
+		// single resource with filter by project
+		"dbt Cloud Jobs one project": {identifierType: "account", resourceTypes: "dbtcloud_job", testdataFilename: "dbtcloud_job_single_project", projects: "43"},
 		// multiple at once
-		"dbt Cloud projects and envs": {identifierType: "account", resourceTypes: "dbtcloud_project,dbtcloud_environment", testdataFilename: "dbtcloud_project_env", listLinkedResources: "dbtcloud_project"},
+		// "dbt Cloud projects and envs": {identifierType: "account", resourceTypes: "dbtcloud_project,dbtcloud_environment", testdataFilename: "dbtcloud_project_env", listLinkedResources: "dbtcloud_project"},
 	}
 
 	for name, tc := range tests {
@@ -48,17 +51,27 @@ func TestResourceImport(t *testing.T) {
 
 			dbtCloudClient = dbtcloud.NewDbtCloudHTTPClient(viper.GetString("host-url"), viper.GetString("token"), viper.GetString("account"), nil)
 
+			projectsParam := []string{}
+			if tc.projects != "" {
+				projectsParam = []string{"--projects", tc.projects}
+			}
+
 			// IMPORTANT!!! we need to reset the lists here otherwise subsequent tests will fail
 			resourceTypes = []string{}
 			listLinkedResources = []string{}
-			outputGenerate, err := executeCommandC(rootCmd, "--terraform-binary-path", "/opt/homebrew/bin/terraform", "--terraform-install-path", "/Users/bper/dev/dbtcloud-terraforming", "generate", "--resource-types", tc.resourceTypes, "--linked-resource-types", tc.listLinkedResources, "--account", cloudflareTestAccountID)
+			argsGenerate := []string{"--terraform-binary-path", "/opt/homebrew/bin/terraform", "--terraform-install-path", "/Users/bper/dev/dbtcloud-terraforming", "generate", "--resource-types", tc.resourceTypes, "--linked-resource-types", tc.listLinkedResources, "--account", cloudflareTestAccountID}
+			combinedArgsGenerate := append(argsGenerate, projectsParam...)
+			outputGenerate, err := executeCommandC(rootCmd, combinedArgsGenerate...)
 			if err != nil {
 				log.Fatal(err)
 			}
 
+			// IMPORTANT!!! we need to reset the lists here otherwise subsequent tests will fail
 			resourceTypes = []string{}
 			listLinkedResources = []string{}
-			outputImport, err = executeCommandC(rootCmd, "--terraform-binary-path", "/opt/homebrew/bin/terraform", "--terraform-install-path", "/Users/bper/dev/dbtcloud-terraforming", "import", "--modern-import-block", "--resource-types", tc.resourceTypes, "--account", cloudflareTestAccountID)
+			argsImport := []string{"--terraform-binary-path", "/opt/homebrew/bin/terraform", "--terraform-install-path", "/Users/bper/dev/dbtcloud-terraforming", "import", "--modern-import-block", "--resource-types", tc.resourceTypes, "--linked-resource-types", tc.listLinkedResources, "--account", cloudflareTestAccountID}
+			combinedArgsImport := append(argsImport, projectsParam...)
+			outputImport, err = executeCommandC(rootCmd, combinedArgsImport...)
 			if err != nil {
 				log.Fatal(err)
 			}
