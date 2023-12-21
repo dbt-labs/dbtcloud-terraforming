@@ -22,9 +22,20 @@ func TestResourceImport(t *testing.T) {
 		testdataFilename    string
 		changesExpected     []string
 	}{
-		"dbt Cloud projects":              {identifierType: "account", resourceTypes: "dbtcloud_project", testdataFilename: "dbtcloud_project", changesExpected: []string{}},
-		"dbt Cloud projects and envs":     {identifierType: "account", resourceTypes: "dbtcloud_project,dbtcloud_environment", testdataFilename: "dbtcloud_project_env", changesExpected: []string{}, listLinkedResources: "dbtcloud_project"},
+		// single resource
+		"dbt Cloud BigQuery connection":   {identifierType: "account", resourceTypes: "dbtcloud_bigquery_connection", testdataFilename: "dbtcloud_bigquery_connection", changesExpected: []string{"private_key", "application_id", "private_key"}},
+		"dbt Cloud BigQuery credentials":  {identifierType: "account", resourceTypes: "dbtcloud_bigquery_credential", testdataFilename: "dbtcloud_bigquery_credential"},
+		"dbt Cloud Environments":          {identifierType: "account", resourceTypes: "dbtcloud_environment", testdataFilename: "dbtcloud_environment"},
+		"dbt Cloud Environment Variables": {identifierType: "account", resourceTypes: "dbtcloud_environment_variable", testdataFilename: "dbtcloud_environment_variable"},
+		"dbt Cloud Groups":                {identifierType: "account", resourceTypes: "dbtcloud_group", testdataFilename: "dbtcloud_group"},
+		"dbt Cloud Jobs":                  {identifierType: "account", resourceTypes: "dbtcloud_job", testdataFilename: "dbtcloud_job"},
+		"dbt Cloud projects":              {identifierType: "account", resourceTypes: "dbtcloud_project", testdataFilename: "dbtcloud_project"},
+		"dbt Cloud project connection":    {identifierType: "account", resourceTypes: "dbtcloud_project_connection", testdataFilename: "dbtcloud_project_connection"},
+		"dbt Cloud project repository":    {identifierType: "account", resourceTypes: "dbtcloud_project_repository", testdataFilename: "dbtcloud_project_repository"},
+		"dbt Cloud repository":            {identifierType: "account", resourceTypes: "dbtcloud_repository", testdataFilename: "dbtcloud_repository"},
 		"dbt Cloud Snowflake credentials": {identifierType: "account", resourceTypes: "dbtcloud_snowflake_credential", testdataFilename: "dbtcloud_snowflake_credential", changesExpected: []string{"password"}},
+		// multiple at once
+		"dbt Cloud projects and envs": {identifierType: "account", resourceTypes: "dbtcloud_project,dbtcloud_environment", testdataFilename: "dbtcloud_project_env", listLinkedResources: "dbtcloud_project"},
 	}
 
 	for name, tc := range tests {
