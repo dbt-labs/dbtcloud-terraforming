@@ -451,6 +451,67 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 				jsonStructData = bigqueryConnectionsTyped
 				resourceCount = len(jsonStructData)
 
+			case "dbtcloud_connection":
+				genericConnections := dbtCloudClient.GetGenericConnections(listFilterProjects)
+				genericConnectionsTyped := []any{}
+
+				for _, connection := range genericConnections {
+					connectionTyped := connection.(map[string]any)
+					projectID := connectionTyped["project_id"].(float64)
+					connectionDetailsTyped := connectionTyped["details"].(map[string]any)
+
+					// we "promote" all details fields one level up like in the Terraform resource
+					for detailKey, detailVal := range connectionDetailsTyped {
+						connectionTyped[detailKey] = detailVal
+					}
+
+					if connectionTyped["type"] == "snowflake" {
+						connectionTyped["oauth_client_id"] = "---TBD if using OAuth, otherwise delete---"
+						connectionTyped["oauth_client_secret"] = "---TBD if using OAuth, otherwise delete---"
+					}
+
+					if connectionTyped["type"] == "redshift" || connectionTyped["type"] == "postgres" {
+						connectionTyped["host_name"] = connectionTyped["hostname"]
+						connectionTyped["database"] = connectionTyped["dbname"]
+					}
+
+					if connectionTyped["type"] == "adapter" {
+
+						detailsTyped := connectionTyped["details"].(map[string]any)
+						connectionDetailsTyped := detailsTyped["connection_details"].(map[string]any)
+						fieldsTyped := connectionDetailsTyped["fields"].(map[string]any)
+						typeTyped := fieldsTyped["type"].(map[string]any)
+						connectionType := fmt.Sprintf("adapter/%s", typeTyped["value"].(string))
+
+						if connectionType == "adapter/databricks" {
+
+							hostnameTyped := fieldsTyped["host"].(map[string]any)
+							hostnameVal := hostnameTyped["value"].(string)
+							httpPathTyped := fieldsTyped["http_path"].(map[string]any)
+							httpPathVal := httpPathTyped["value"].(string)
+							catalogTyped := fieldsTyped["catalog"].(map[string]any)
+							catalogVal := catalogTyped["value"].(string)
+
+							connectionTyped["host_name"] = hostnameVal
+							connectionTyped["http_path"] = httpPathVal
+							connectionTyped["catalog"] = catalogVal
+							connectionTyped["database"] = "<set-empty-string>"
+						}
+
+						// we don't support adapter/spark yet
+
+					}
+
+					if linkResource("dbtcloud_project") {
+						connectionTyped["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%0.f.id", projectID)
+					}
+
+					genericConnectionsTyped = append(genericConnectionsTyped, connectionTyped)
+				}
+
+				jsonStructData = genericConnectionsTyped
+				resourceCount = len(jsonStructData)
+
 			default:
 				fmt.Fprintf(cmd.OutOrStderr(), "%q is not yet supported for automatic generation", resourceType)
 				return

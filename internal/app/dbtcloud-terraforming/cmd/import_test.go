@@ -35,7 +35,9 @@ func TestResourceImport(t *testing.T) {
 		"dbt Cloud repository":            {resourceTypes: "dbtcloud_repository", testdataFilename: "dbtcloud_repository"},
 		"dbt Cloud Snowflake credentials": {resourceTypes: "dbtcloud_snowflake_credential", testdataFilename: "dbtcloud_snowflake_credential", changesExpected: []string{"password"}},
 		// single resource with filter by project
-		"dbt Cloud Jobs one project": {resourceTypes: "dbtcloud_job", testdataFilename: "dbtcloud_job_single_project", projects: "43"},
+		"dbt Cloud connection - Databricks": {resourceTypes: "dbtcloud_connection", testdataFilename: "dbtcloud_connection_databricks", projects: "43", changesExpected: []string{"database"}},
+		"dbt Cloud connection - Snowflake":  {resourceTypes: "dbtcloud_connection", testdataFilename: "dbtcloud_connection_snowflake", projects: "71", changesExpected: []string{"oauth_client_id", "oauth_client_secret"}},
+		"dbt Cloud Jobs one project":        {resourceTypes: "dbtcloud_job", testdataFilename: "dbtcloud_job_single_project", projects: "43"},
 		// multiple at once
 		"dbt Cloud projects and envs": {resourceTypes: "dbtcloud_project,dbtcloud_environment", testdataFilename: "dbtcloud_project_env", listLinkedResources: "dbtcloud_project"},
 	}
@@ -58,6 +60,7 @@ func TestResourceImport(t *testing.T) {
 			// IMPORTANT!!! we need to reset the lists here otherwise subsequent tests will fail
 			resourceTypes = []string{}
 			listLinkedResources = []string{}
+			listFilterProjects = []int{}
 			argsGenerate := []string{"--terraform-binary-path", "/opt/homebrew/bin/terraform", "--terraform-install-path", "/Users/bper/dev/dbtcloud-terraforming", "generate", "--resource-types", tc.resourceTypes, "--linked-resource-types", tc.listLinkedResources, "--account", cloudflareTestAccountID}
 			combinedArgsGenerate := append(argsGenerate, projectsParam...)
 			outputGenerate, err := executeCommandC(rootCmd, combinedArgsGenerate...)
@@ -68,6 +71,7 @@ func TestResourceImport(t *testing.T) {
 			// IMPORTANT!!! we need to reset the lists here otherwise subsequent tests will fail
 			resourceTypes = []string{}
 			listLinkedResources = []string{}
+			listFilterProjects = []int{}
 			argsImport := []string{"--terraform-binary-path", "/opt/homebrew/bin/terraform", "--terraform-install-path", "/Users/bper/dev/dbtcloud-terraforming", "import", "--modern-import-block", "--resource-types", tc.resourceTypes, "--linked-resource-types", tc.listLinkedResources, "--account", cloudflareTestAccountID}
 			combinedArgsImport := append(argsImport, projectsParam...)
 			outputImport, err = executeCommandC(rootCmd, combinedArgsImport...)

@@ -25,6 +25,7 @@ var resourceImportStringFormats = map[string]string{
 	"dbtcloud_snowflake_credential": ":project_id::id",
 	"dbtcloud_bigquery_credential":  ":project_id::id",
 	"dbtcloud_bigquery_connection":  ":project_id::id",
+	"dbtcloud_connection":           ":project_id::id",
 }
 
 func init() {
@@ -115,6 +116,9 @@ func runImport() func(cmd *cobra.Command, args []string) {
 
 			case "dbtcloud_bigquery_connection":
 				jsonStructData = dbtCloudClient.GetBigQueryConnections(listFilterProjects)
+
+			case "dbtcloud_connection":
+				jsonStructData = dbtCloudClient.GetGenericConnections(listFilterProjects)
 
 			default:
 				fmt.Fprintf(cmd.OutOrStderr(), "%q is not yet supported for state import", resourceType)

@@ -282,7 +282,16 @@ func (c *DbtCloudHTTPClient) GetConnections(listProjects []int, warehouses []str
 		}
 
 		projectConnectionTyped := projectTyped["connection"].(map[string]any)
-		if !lo.Contains(warehouses, projectConnectionTyped["type"].(string)) {
+		connectionType := projectConnectionTyped["type"].(string)
+		if connectionType == "adapter" {
+			// this is very ugly but we need to traverse down...
+			detailsTyped := projectConnectionTyped["details"].(map[string]any)
+			connectionDetailsTyped := detailsTyped["connection_details"].(map[string]any)
+			fieldsTyped := connectionDetailsTyped["fields"].(map[string]any)
+			typeTyped := fieldsTyped["type"].(map[string]any)
+			connectionType = fmt.Sprintf("adapter/%s", typeTyped["value"].(string))
+		}
+		if !lo.Contains(warehouses, connectionType) {
 			continue
 		}
 
@@ -294,8 +303,16 @@ func (c *DbtCloudHTTPClient) GetConnections(listProjects []int, warehouses []str
 	return connections
 }
 
+func (c *DbtCloudHTTPClient) GetGenericConnections(listProjects []int) []any {
+	return c.GetConnections(listProjects, []string{"snowflake", "postgres", "redshift", "adapter/spark", "adapter/databricks"})
+}
+
 func (c *DbtCloudHTTPClient) GetBigQueryConnections(listProjects []int) []any {
 	return c.GetConnections(listProjects, []string{"bigquery"})
+}
+
+func (c *DbtCloudHTTPClient) GetFabricConnections(listProjects []int) []any {
+	return c.GetConnections(listProjects, []string{"adapter/fabric"})
 }
 
 func (c *DbtCloudHTTPClient) GetSnowflakeCredentials(listProjects []int) []any {
