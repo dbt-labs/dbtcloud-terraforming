@@ -202,6 +202,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 						projectID := jobTyped["project_id"].(float64)
 						jobTyped["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%0.f.id", projectID)
 					}
+
 					jsonStructData = append(jsonStructData, jobTyped)
 				}
 
@@ -224,6 +225,13 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 						environmentsTyped["credential_id"] = credentialID
 						if linkResource("dbtcloud_credential") {
 							environmentsTyped["credential_id"] = fmt.Sprintf("dbtcloud_credential.terraform_managed_resource_%0.f.id", credentialID)
+						}
+					}
+
+					// handle the case when extended_attributes_id is not set
+					if extendedAttributesID, ok := environmentsTyped["extended_attributes_id"].(float64); ok {
+						if linkResource("dbtcloud_extended_attributes") {
+							environmentsTyped["extended_attributes_id"] = fmt.Sprintf("dbtcloud_extended_attributes.terraform_managed_resource_%0.f.extended_attributes_id", extendedAttributesID)
 						}
 					}
 
