@@ -7,8 +7,10 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/samber/lo"
+	"golang.org/x/time/rate"
 )
 
 type Response struct {
@@ -51,9 +53,32 @@ type DbtCloudHTTPClient struct {
 	AccountID string
 }
 
+type RateLimitedTransport struct {
+	*http.Transport
+	limiter *rate.Limiter
+}
+
+// RoundTrip overrides the http.RoundTrip to implement rate limiting.
+func (t *RateLimitedTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	// Wait for permission from the rate limiter
+	t.limiter.Wait(req.Context())
+
+	// Proceed with the request
+	return t.Transport.RoundTrip(req)
+}
+
 func NewDbtCloudHTTPClient(hostURL, apiToken, accountID string, transport http.RoundTripper) *DbtCloudHTTPClient {
 	if transport == nil {
-		transport = http.DefaultTransport
+
+		limiter := rate.NewLimiter(rate.Every(time.Minute), 3000)
+
+		// Create a custom transport which is a modified clone of DefaultTransport
+		// DefaultTransport handles https_proxy env var that we need to capture HTTP calls
+		defaultTransport := http.DefaultTransport.(*http.Transport).Clone()
+		transport = &RateLimitedTransport{
+			Transport: defaultTransport,
+			limiter:   limiter,
+		}
 	}
 	return &DbtCloudHTTPClient{
 		Client:    &http.Client{Transport: transport},
