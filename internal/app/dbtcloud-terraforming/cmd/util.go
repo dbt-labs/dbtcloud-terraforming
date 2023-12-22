@@ -312,3 +312,22 @@ func writeAttrLine(key string, value interface{}, parentName string, body *hclwr
 		log.Debugf("got unknown attribute configuration: key %s, value %v, value type %T", key, value, value)
 	}
 }
+
+func regexFixExtendedAttributes(inp string) string {
+	// Compile the regular expression with a capturing group for the price
+	re := regexp.MustCompile(`extended_attributes = ({[\S\s]+?  })`)
+
+	// Define a function for the replacement
+	replacementFunc := func(match string) string {
+		// Access the capturing group via FindStringSubmatch
+		matches := re.FindStringSubmatch(match)
+		if len(matches) < 2 {
+			// No capturing group match found
+			return match
+		}
+
+		return fmt.Sprintf("extended_attributes = jsonencode(\n  %s\n  )", matches[1])
+	}
+
+	return re.ReplaceAllStringFunc(inp, replacementFunc)
+}

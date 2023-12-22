@@ -377,15 +377,24 @@ func (c *DbtCloudHTTPClient) GetCredentials(listProjects []int) []any {
 	})
 
 	allCredentials := c.GetData(url)
-	validCredentials := []any{}
+	filteredCredentials := filterByProject(allCredentials, allProjectIDs)
+	return filteredCredentials
+}
 
-	for _, credential := range allCredentials {
-		credentialTyped := credential.(map[string]interface{})
-		credentialProjectID := int(credentialTyped["project_id"].(float64))
+func (c *DbtCloudHTTPClient) GetExtendedAttributes(listProjects []int) []any {
 
-		if lo.Contains(allProjectIDs, credentialProjectID) == true {
-			validCredentials = append(validCredentials, credential)
+	allExtendedAttributes := []any{}
+	envs := c.GetEnvironments(listProjects)
+	for _, env := range envs {
+		envTyped := env.(map[string]any)
+		extendedAttributesID, err := envTyped["extended_attributes_id"].(float64)
+		if err != true {
+			continue
 		}
+		projectID := envTyped["project_id"].(float64)
+		url := fmt.Sprintf("%s/v3/accounts/%s/projects/%0.f/extended-attributes/%0.f/", c.HostURL, c.AccountID, projectID, extendedAttributesID)
+		extendedAttributes := c.GetSingleData(url)
+		allExtendedAttributes = append(allExtendedAttributes, extendedAttributes)
 	}
-	return validCredentials
+	return allExtendedAttributes
 }

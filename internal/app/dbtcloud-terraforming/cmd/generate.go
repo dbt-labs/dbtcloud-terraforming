@@ -512,6 +512,23 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 				jsonStructData = genericConnectionsTyped
 				resourceCount = len(jsonStructData)
 
+			case "dbtcloud_extended_attributes":
+				listExtendedAttributes := dbtCloudClient.GetExtendedAttributes(listFilterProjects)
+
+				for _, extendedAttributes := range listExtendedAttributes {
+					extendedAttributesTyped := extendedAttributes.(map[string]any)
+
+					projectID := extendedAttributesTyped["project_id"].(float64)
+					extendedAttributesTyped["state"] = ""
+
+					if linkResource("dbtcloud_project") {
+						extendedAttributesTyped["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%0.f.id", projectID)
+					}
+					jsonStructData = append(jsonStructData, extendedAttributesTyped)
+				}
+
+				resourceCount = len(jsonStructData)
+
 			default:
 				fmt.Fprintf(cmd.OutOrStderr(), "%q is not yet supported for automatic generation", resourceType)
 				return
@@ -601,6 +618,12 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 			}
 
 			tfOutput := string(hclwrite.Format(f.Bytes()))
+
+			// HACK this is hacky but we need to fix the extended attributes to load as JSON
+			if resourceType == "dbtcloud_extended_attributes" {
+				tfOutput = regexFixExtendedAttributes(tfOutput)
+			}
+
 			fmt.Fprint(cmd.OutOrStdout(), tfOutput)
 		}
 	}

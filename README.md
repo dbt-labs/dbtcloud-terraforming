@@ -41,7 +41,7 @@ This tool can be used to load existing dbt Cloud configuration into Terraform. C
 | dbtcloud_environment                       | Project        | ✅                 | ✅               |                       |
 | dbtcloud_environment_variable              | Project        | ✅                 | ✅               |                       |
 | dbtcloud_environment_variable_job_override | Project        |                    |                  |                       |
-| dbtcloud_extended_attributes               | Project        |                    |                  |                       |
+| dbtcloud_extended_attributes(*)            | Project        | ✅                 | ✅               |                       |
 | dbtcloud_fabric_connection                 | Project        |                    |                  |                       |
 | dbtcloud_fabric_credential                 | Project        |                    |                  | 🔒                    |
 | dbtcloud_group                             | Account        | ✅                 | ✅               |                       |
@@ -58,6 +58,12 @@ This tool can be used to load existing dbt Cloud configuration into Terraform. C
 | dbtcloud_snowflake_credential              | Project        | ✅                 | ✅               | 🔒                    |
 | dbtcloud_user_groups                       | Account        |                    |                  |                       |
 | dbtcloud_webhook                           | Account        |                    |                  |                       |
+
+Notes:
+
+- `dbtcloud_connection` is supported for Snowflake, Redshift, Postgres and Databricks, but not for Spark
+- `dbtcloud_extended_attributes` currently doesn't generate config for nested fields, only top level ones
+
 
 ## How to use the tool
 
