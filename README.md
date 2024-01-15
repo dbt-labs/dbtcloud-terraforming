@@ -12,12 +12,11 @@ Available Commands:
   completion  Generate the autocompletion script for the specified shell
   generate    Fetch resources from the dbt Cloud API and generate the respective Terraform stanzas
   help        Help about any command
-  import      Output `terraform import` compatible commands in order to import resources into state
+  import      Output `terraform import` compatible commands and/or import blocks (require terraform >= 1.5) in order to import resources into state
   version     Print the version number of dbtcloud-terraforming
 
 Flags:
   -a, --account string                  Use specific account ID for commands
-  -c, --config string                   Path to config file (default "/Users/bper/.dbtcloud-terraforming.yaml")
   -h, --help                            help for dbtcloud-terraforming
       --host-url string                 Host URL to use to query the API, includes the /api part
       --linked-resource-types strings   List of resource types to make dependencies links to instead of using IDs. Can be set to all for linking all resources.
@@ -64,7 +63,6 @@ Notes:
 - `dbtcloud_connection` is supported for Snowflake, Redshift, Postgres and Databricks, but not for Spark
 - `dbtcloud_extended_attributes` currently doesn't generate config for nested fields, only top level ones
 
-
 ## How to use the tool
 
 ### Connecting to dbt Cloud
@@ -90,13 +88,13 @@ Download the tool and run commands like below:
 To generate the config
 
 ```sh
-./dbtcloud-terraforming generate --resource-types dbcloud_project,dbtcloud_environment,dbtcloud_job --linked-resource-types dbtcloud_project,dbtcloud_environment
+dbtcloud-terraforming generate --resource-types dbcloud_project,dbtcloud_environment,dbtcloud_job --linked-resource-types dbtcloud_project,dbtcloud_environment
 ```
 
 To generate the import blocks
 
 ```sh
-./dbtcloud-terraforming import --resource-types dbcloud_project,dbtcloud_environment,dbtcloud_job --modern-import-block
+dbtcloud-terraforming import --resource-types dbcloud_project,dbtcloud_environment,dbtcloud_job --modern-import-block
 ```
 
 Once both of the outputs are generated, you can copy paste them in a terraform file having the `dbtcloud` provider already set up and you can run a `terraform plan`.
@@ -121,10 +119,14 @@ Setting up `--linked-resource-types` with the resource types you want to link wi
 With this example:
 
 ```sh
-./dbtcloud-terraforming generate --resource-types dbcloud_project,dbtcloud_environment,dbtcloud_job --linked-resource-types dbtcloud_project,dbtcloud_environment
+dbtcloud-terraforming generate --resource-types dbcloud_project,dbtcloud_environment,dbtcloud_job --linked-resource-types dbtcloud_project,dbtcloud_environment
 ```
 
 - the dbt Cloud environment resources will be linked to the project
 - and the dbt Cloud jobs will be linked to both their relevant project and environment
 
 This can be especially useful if you want to replicate an existing project. To do so, you can generate all the config *without* importing it. You could change the name of a project, and after running a `terraform apply` all the objects will be newly created, replicating your existing config in another project.
+
+## Credits
+
+A big part of this tool has been inspired from the Cloudflare library [cf-terraforming](https://github.com/cloudflare/cf-terraforming/tree/master)
