@@ -1,9 +1,7 @@
 package cmd
 
 import (
-	cloudflare "github.com/cloudflare/cloudflare-go"
 	"github.com/dbt-cloud/dbtcloud-terraforming/dbtcloud"
-	homedir "github.com/mitchellh/go-homedir"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -13,7 +11,6 @@ var log = logrus.New()
 var cfgFile, zoneID, hostURL, apiEmail, apiKey, apiToken, accountID, terraformInstallPath, terraformBinaryPath string
 var listFilterProjects []int
 var verbose, useModernImportBlock bool
-var api *cloudflare.API
 var dbtCloudClient *dbtcloud.DbtCloudHTTPClient
 var terraformImportCmdPrefix = "terraform import"
 var terraformResourceNamePrefix = "terraform_managed_resource"
@@ -21,7 +18,7 @@ var terraformResourceNamePrefix = "terraform_managed_resource"
 // rootCmd represents the base command when called without any subcommands.
 var rootCmd = &cobra.Command{
 	Use:   "dbtcloud-terraforming",
-	Short: "Bootstrapping Terraform from existing Cloudflare account",
+	Short: "Bootstrapping Terraform from existing dbt Cloud account",
 	Long: `dbtcloud-terraforming is an application that allows dbt Cloud users
 to be able to adopt Terraform by giving them a feasible way to get
 all of their existing dbt Cloud configuration into Terraform.`,
@@ -39,19 +36,14 @@ func Execute() {
 func init() {
 	cobra.OnInitialize(initConfig)
 
-	home, err := homedir.Dir()
-	if err != nil {
-		log.Debug(err)
-		return
-	}
+	var err error
 
 	// Here you will define your flags and configuration settings.
 	// Cobra supports persistent flags, which, if defined here,
 	// will be global for your application.
-	rootCmd.PersistentFlags().StringVarP(&cfgFile, "config", "c", home+"/.dbtcloud-terraforming.yaml", "Path to config file")
 
 	// Account
-	rootCmd.PersistentFlags().StringVarP(&accountID, "account", "a", "", "Use specific account ID for commands")
+	rootCmd.PersistentFlags().StringVarP(&accountID, "account", "a", "", "Use specific account ID for commands. [env var: DBT_CLOUD_ACCOUNT_ID]")
 	if err = viper.BindPFlag("account", rootCmd.PersistentFlags().Lookup("account")); err != nil {
 		log.Fatal(err)
 	}
@@ -61,7 +53,7 @@ func init() {
 
 	// API credentials
 
-	rootCmd.PersistentFlags().StringVarP(&apiToken, "token", "t", "", "API Token")
+	rootCmd.PersistentFlags().StringVarP(&apiToken, "token", "t", "", "API Token. [env var: DBT_CLOUD_TOKEN]")
 	if err = viper.BindPFlag("token", rootCmd.PersistentFlags().Lookup("token")); err != nil {
 		log.Fatal(err)
 	}
@@ -69,7 +61,7 @@ func init() {
 		log.Fatal(err)
 	}
 
-	rootCmd.PersistentFlags().StringVarP(&hostURL, "host-url", "", "", "Host URL to use to query the API, includes the /api part")
+	rootCmd.PersistentFlags().StringVarP(&hostURL, "host-url", "", "", "Host URL to use to query the API, includes the /api part. [env var: DBT_CLOUD_HOST_URL]")
 	if err = viper.BindPFlag("host-url", rootCmd.PersistentFlags().Lookup("host-url")); err != nil {
 		log.Fatal(err)
 	}
@@ -77,7 +69,7 @@ func init() {
 		log.Fatal(err)
 	}
 
-	rootCmd.PersistentFlags().IntSliceVarP(&listFilterProjects, "projects", "p", []int{}, "Project IDs to limit the import for")
+	rootCmd.PersistentFlags().IntSliceVarP(&listFilterProjects, "projects", "p", []int{}, "Project IDs to limit the import for. Imports all projects if not set. [env var: DBT_CLOUD_PROJECTS]")
 	if err = viper.BindPFlag("projects", rootCmd.PersistentFlags().Lookup("projects")); err != nil {
 		log.Fatal(err)
 	}
@@ -90,7 +82,7 @@ func init() {
 
 	rootCmd.PersistentFlags().StringSliceVar(&resourceTypes, "resource-types", []string{}, "List of resource types you wish to generate")
 
-	rootCmd.PersistentFlags().StringSliceVar(&listLinkedResources, "linked-resource-types", []string{}, "List of resource types to make dependencies links to instead of using IDs. Can be set to all for linking all resources.")
+	rootCmd.PersistentFlags().StringSliceVar(&listLinkedResources, "linked-resource-types", []string{}, "List of resource types to make dependencies links to instead of using IDs. Can be set to 'all' for linking all resources")
 
 	rootCmd.PersistentFlags().BoolVarP(&useModernImportBlock, "modern-import-block", "", false, "Whether to generate HCL import blocks for generated resources instead of terraform import compatible CLI commands. This is only compatible with Terraform 1.5+")
 
@@ -106,34 +98,16 @@ func init() {
 		log.Fatal(err)
 	}
 
-	if err = viper.BindEnv("terraform-install-path", "CLOUDFLARE_TERRAFORM_INSTALL_PATH"); err != nil {
+	if err = viper.BindEnv("terraform-install-path", "DBT_CLOUD_TERRAFORM_INSTALL_PATH"); err != nil {
 		log.Fatal(err)
 	}
 }
 
-// initConfig reads in config file and ENV variables if set.
+// initConfig reads ENV variables if set.
 func initConfig() {
-	if cfgFile != "" {
-		viper.SetConfigFile(cfgFile)
-	} else {
-		home, err := homedir.Dir()
-		if err != nil {
-			log.Debug(err)
-			return
-		}
-
-		// Search config in home directory with name ".dbtcloud-terraforming" (without extension).
-		viper.AddConfigPath(home)
-		viper.SetConfigName(".dbtcloud-terraforming")
-	}
 
 	viper.AutomaticEnv() // read in environment variables that match
-	viper.SetEnvPrefix("cf_terraforming")
-
-	// If a config file is found, read it in.
-	if err := viper.ReadInConfig(); err == nil {
-		log.Debug("using config file:", viper.ConfigFileUsed())
-	}
+	viper.SetEnvPrefix("dbtcloud_terraforming")
 
 	var cfgLogLevel = logrus.InfoLevel
 
