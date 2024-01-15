@@ -26,7 +26,6 @@ func TestResourceImport(t *testing.T) {
 		"dbt Cloud BigQuery connection":   {resourceTypes: "dbtcloud_bigquery_connection", testdataFilename: "dbtcloud_bigquery_connection", changesExpected: []string{"private_key", "application_id", "private_key"}},
 		"dbt Cloud BigQuery credentials":  {resourceTypes: "dbtcloud_bigquery_credential", testdataFilename: "dbtcloud_bigquery_credential"},
 		"dbt Cloud environments":          {resourceTypes: "dbtcloud_environment", testdataFilename: "dbtcloud_environment"},
-		"dbt Cloud environment variables": {resourceTypes: "dbtcloud_environment_variable", testdataFilename: "dbtcloud_environment_variable"},
 		"dbt Cloud groups":                {resourceTypes: "dbtcloud_group", testdataFilename: "dbtcloud_group"},
 		"dbt Cloud jobs":                  {resourceTypes: "dbtcloud_job", testdataFilename: "dbtcloud_job"},
 		"dbt Cloud projects":              {resourceTypes: "dbtcloud_project", testdataFilename: "dbtcloud_project"},
@@ -37,11 +36,12 @@ func TestResourceImport(t *testing.T) {
 		// single resource with filter by project
 		"dbt Cloud connection - Databricks": {resourceTypes: "dbtcloud_connection", testdataFilename: "dbtcloud_connection_databricks", projects: "43", changesExpected: []string{"database"}},
 		"dbt Cloud connection - Snowflake":  {resourceTypes: "dbtcloud_connection", testdataFilename: "dbtcloud_connection_snowflake", projects: "71", changesExpected: []string{"oauth_client_id", "oauth_client_secret"}},
-		"dbt Cloud Jobs one project":        {resourceTypes: "dbtcloud_job", testdataFilename: "dbtcloud_job_single_project", projects: "43"},
 		"dbt Cloud extended attributes":     {resourceTypes: "dbtcloud_extended_attributes", testdataFilename: "dbtcloud_extended_attributes", projects: "2570"},
+		"dbt Cloud environment variables":   {resourceTypes: "dbtcloud_environment_variable", testdataFilename: "dbtcloud_environment_variable", projects: "2570"},
+		"dbt Cloud jobs one project":        {resourceTypes: "dbtcloud_job", testdataFilename: "dbtcloud_job_single_project", projects: "43"},
 		// multiple at once
-		"dbt Cloud projects and envs":                    {resourceTypes: "dbtcloud_project,dbtcloud_environment", testdataFilename: "dbtcloud_project_env", listLinkedResources: "dbtcloud_project"},
 		"dbt Cloud environments and extended attributes": {resourceTypes: "dbtcloud_environment,dbtcloud_extended_attributes", testdataFilename: "dbtcloud_env_extended_attributes", listLinkedResources: "dbtcloud_extended_attributes", projects: "2570"},
+		"dbt Cloud projects and envs":                    {resourceTypes: "dbtcloud_project,dbtcloud_environment", testdataFilename: "dbtcloud_project_env", listLinkedResources: "dbtcloud_project"},
 	}
 
 	for name, tc := range tests {
@@ -63,7 +63,7 @@ func TestResourceImport(t *testing.T) {
 			resourceTypes = []string{}
 			listLinkedResources = []string{}
 			listFilterProjects = []int{}
-			argsGenerate := []string{"--terraform-binary-path", "/opt/homebrew/bin/terraform", "--terraform-install-path", "/Users/bper/dev/dbtcloud-terraforming", "generate", "--resource-types", tc.resourceTypes, "--linked-resource-types", tc.listLinkedResources, "--account", cloudflareTestAccountID}
+			argsGenerate := []string{"--terraform-binary-path", "/opt/homebrew/bin/terraform", "--terraform-install-path", "/Users/bper/dev/dbtcloud-terraforming", "generate", "--resource-types", tc.resourceTypes, "--linked-resource-types", tc.listLinkedResources, "--account", dbtCloudTestAccountID}
 			combinedArgsGenerate := append(argsGenerate, projectsParam...)
 			outputGenerate, err := executeCommandC(rootCmd, combinedArgsGenerate...)
 			if err != nil {
@@ -74,7 +74,7 @@ func TestResourceImport(t *testing.T) {
 			resourceTypes = []string{}
 			listLinkedResources = []string{}
 			listFilterProjects = []int{}
-			argsImport := []string{"--terraform-binary-path", "/opt/homebrew/bin/terraform", "--terraform-install-path", "/Users/bper/dev/dbtcloud-terraforming", "import", "--modern-import-block", "--resource-types", tc.resourceTypes, "--linked-resource-types", tc.listLinkedResources, "--account", cloudflareTestAccountID}
+			argsImport := []string{"--terraform-binary-path", "/opt/homebrew/bin/terraform", "--terraform-install-path", "/Users/bper/dev/dbtcloud-terraforming", "import", "--modern-import-block", "--resource-types", tc.resourceTypes, "--linked-resource-types", tc.listLinkedResources, "--account", dbtCloudTestAccountID}
 			combinedArgsImport := append(argsImport, projectsParam...)
 			outputImport, err = executeCommandC(rootCmd, combinedArgsImport...)
 			if err != nil {
