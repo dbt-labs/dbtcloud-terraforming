@@ -102,30 +102,6 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 			// newly generated resources.
 			resourceCount := 0
 
-			// Lazy approach to restrict support to known resources due to Go's type
-			// restrictions and the need to explicitly map out the structs.
-
-			// type DataResult struct {
-			// 	Result []interface{}
-			// }
-
-			// type Answer struct {
-			// 	Data []DataResult `json:"data"`
-			// }
-
-			// type Response struct {
-			// 	Data []interface{} `json:"data"`
-			// }
-
-			// var answer DataWrapper
-			// var jsonStructData []interface{}
-
-			// var identifier *cloudflare.ResourceContainer
-			// if accountID != "" {
-			// 	identifier = cloudflare.AccountIdentifier(accountID)
-			// } else {
-			// 	identifier = cloudflare.ZoneIdentifier(zoneID)
-			// }
 			var jsonStructData []any
 
 			switch resourceType {
