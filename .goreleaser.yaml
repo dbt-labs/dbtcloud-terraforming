@@ -1,0 +1,37 @@
+project_name: dbtcloud-terraforming
+builds:
+  - main: ./cmd/dbtcloud-terraforming/main.go
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+      - arm
+
+checksum:
+  name_template: 'checksums.txt'
+
+snapshot:
+  name_template: "{{ .Tag }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+
+universal_binaries:
+  - replace: true
+
+brews:
+  - name: dbtcloud-terraforming
+    homepage: "https://github.com/dbt-labs/dbtcloud-terraforming"
+    description: "CLI tool to help importing existing dbt Cloud configuration to Terraform"
+    repository:
+      owner: dbt-labs
+      name: homebrew-dbt-cli
