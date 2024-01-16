@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/dbt-cloud/dbtcloud-terraforming/dbtcloud"
+	"github.com/dbt-labs/dbtcloud-terraforming/dbtcloud"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	tfjson "github.com/hashicorp/terraform-json"

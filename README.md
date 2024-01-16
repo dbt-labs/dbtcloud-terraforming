@@ -1,5 +1,9 @@
 # dbt Cloud Terraforming
 
+`dbtcloud-terraforming` has been created to be used along with the [dbt Cloud Terraform provider](https://registry.terraform.io/providers/dbt-labs/dbtcloud/latest) maintained by dbt Labs.
+
+It can be used to generate the relevant Terraform configuration files based on existing dbt Cloud configuration.
+
 ```sh
 dbtcloud-terraforming is an application that allows dbt Cloud users
 to be able to adopt Terraform by giving them a feasible way to get
@@ -65,6 +69,13 @@ Notes:
 
 ## How to use the tool
 
+### Installation
+
+Download the executable for your platform [from the GitHUb releases page](https://github.com/dbt-labs/dbtcloud-terraforming/releases/tag/v0.2.0) and extract it.
+You can then add it to your PATH and run it with `dbtcloud-terraforming` or run it based on its location (e.g. `./dbtcloud-terraforming`).
+
+(WIP) There will soon be the ability to install the CLI from `homebrew` for MacOS and Linux.
+
 ### Connecting to dbt Cloud
 
 To connect to dbt Cloud, you need to provide an API token and a dbt Cloud Account ID. If your account is not hosted on cloud.getdbt.com you will also need to provide the relevant API endpoint.
@@ -79,6 +90,14 @@ Example:
 export DBT_CLOUD_TOKEN=<token>
 export DBT_CLOUD_ACCOUNT_ID=123
 export DBT_CLOUD_HOST_URL="http://emea.dbt.com/api"
+```
+
+or for Powershell
+
+```sh
+$Env:DBT_CLOUD_TOKEN = '<token>'
+$Env:DBT_CLOUD_ACCOUNT_ID = 123
+$Env:DBT_CLOUD_HOST_URL = 'http://emea.dbt.com/api'
 ```
 
 ### Executing the tool
@@ -126,6 +145,10 @@ dbtcloud-terraforming generate --resource-types dbcloud_project,dbtcloud_environ
 - and the dbt Cloud jobs will be linked to both their relevant project and environment
 
 This can be especially useful if you want to replicate an existing project. To do so, you can generate all the config *without* importing it. You could change the name of a project, and after running a `terraform apply` all the objects will be newly created, replicating your existing config in another project.
+
+## Contributing
+
+Currently, the best way to contribute is to raise bugs/feature requests as GitHub issues.
 
 ## Credits
 

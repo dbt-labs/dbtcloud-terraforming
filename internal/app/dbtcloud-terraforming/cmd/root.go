@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	"github.com/dbt-cloud/dbtcloud-terraforming/dbtcloud"
+	"github.com/dbt-labs/dbtcloud-terraforming/dbtcloud"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
