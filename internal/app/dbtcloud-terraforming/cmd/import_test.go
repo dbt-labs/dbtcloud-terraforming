@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/dbt-cloud/dbtcloud-terraforming/dbtcloud"
+	"github.com/dbt-labs/dbtcloud-terraforming/dbtcloud"
 	"github.com/hashicorp/terraform-exec/tfexec"
 	"github.com/samber/lo"
 	"github.com/spf13/viper"

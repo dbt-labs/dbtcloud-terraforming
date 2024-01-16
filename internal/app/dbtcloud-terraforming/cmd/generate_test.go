@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/MakeNowJust/heredoc/v2"
-	"github.com/dbt-cloud/dbtcloud-terraforming/dbtcloud"
+	"github.com/dbt-labs/dbtcloud-terraforming/dbtcloud"
 	"gopkg.in/dnaeon/go-vcr.v3/cassette"
 	"gopkg.in/dnaeon/go-vcr.v3/recorder"
 

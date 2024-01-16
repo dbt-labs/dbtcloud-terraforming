@@ -1,4 +1,4 @@
-module github.com/dbt-cloud/dbtcloud-terraforming
+module github.com/dbt-labs/dbtcloud-terraforming
 
 go 1.21.0
 
