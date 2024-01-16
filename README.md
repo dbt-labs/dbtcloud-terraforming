@@ -107,13 +107,13 @@ Download the tool and run commands like below:
 To generate the config
 
 ```sh
-dbtcloud-terraforming generate --resource-types dbcloud_project,dbtcloud_environment,dbtcloud_job --linked-resource-types dbtcloud_project,dbtcloud_environment
+dbtcloud-terraforming generate --resource-types dbtcloud_project,dbtcloud_environment,dbtcloud_job --linked-resource-types dbtcloud_project,dbtcloud_environment
 ```
 
 To generate the import blocks
 
 ```sh
-dbtcloud-terraforming import --resource-types dbcloud_project,dbtcloud_environment,dbtcloud_job --modern-import-block
+dbtcloud-terraforming import --resource-types dbtcloud_project,dbtcloud_environment,dbtcloud_job --modern-import-block
 ```
 
 Once both of the outputs are generated, you can copy paste them in a terraform file having the `dbtcloud` provider already set up and you can run a `terraform plan`.
@@ -138,7 +138,7 @@ Setting up `--linked-resource-types` with the resource types you want to link wi
 With this example:
 
 ```sh
-dbtcloud-terraforming generate --resource-types dbcloud_project,dbtcloud_environment,dbtcloud_job --linked-resource-types dbtcloud_project,dbtcloud_environment
+dbtcloud-terraforming generate --resource-types dbtcloud_project,dbtcloud_environment,dbtcloud_job --linked-resource-types dbtcloud_project,dbtcloud_environment
 ```
 
 - the dbt Cloud environment resources will be linked to the project
