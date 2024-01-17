@@ -331,8 +331,10 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 								envValuesTyped := envValues.(map[string]any)
 								collectEnvValues[envName] = envValuesTyped["value"].(string)
 
+								if strings.HasPrefix(envVarName, "DBT_ENV_SECRET_") {
+									collectEnvValues[envName] = "---TBD secret env var---"
+								}
 							}
-
 						}
 
 						if linkResource("dbtcloud_environment") {
