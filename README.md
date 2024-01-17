@@ -42,7 +42,7 @@ This tool can be used to load existing dbt Cloud configuration into Terraform. C
 | dbtcloud_connection                        | Project        | ✅                 | ✅               | 🔒*                   |
 | dbtcloud_databricks_credential             | Project        |                    |                  |                       |
 | dbtcloud_environment                       | Project        | ✅                 | ✅               |                       |
-| dbtcloud_environment_variable              | Project        | ✅                 | ✅               |                       |
+| dbtcloud_environment_variable              | Project        | ✅                 | ✅               | 🔒*                    |
 | dbtcloud_environment_variable_job_override | Project        |                    |                  |                       |
 | dbtcloud_extended_attributes(*)            | Project        | ✅                 | ✅               |                       |
 | dbtcloud_fabric_connection                 | Project        |                    |                  |                       |
@@ -59,7 +59,7 @@ This tool can be used to load existing dbt Cloud configuration into Terraform. C
 | dbtcloud_repository                        | Project        | ✅                 | ✅               |                       |
 | dbtcloud_service_token                     | Account        |                    |                  | 🔒                    |
 | dbtcloud_snowflake_credential              | Project        | ✅                 | ✅               | 🔒                    |
-| dbtcloud_user_groups                       | Account        |                    |                  |                       |
+| dbtcloud_user_groups                       | Account        | ✅                 | ✅               |                       |
 | dbtcloud_webhook                           | Account        |                    |                  |                       |
 
 Notes:

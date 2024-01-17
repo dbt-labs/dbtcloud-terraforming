@@ -273,7 +273,7 @@ func (c *DbtCloudHTTPClient) GetEnvironmentVariables(listProjects []int) map[int
 
 	projects := c.GetProjects(listProjects)
 	for _, project := range projects {
-		projectTyped := project.(map[string]interface{})
+		projectTyped := project.(map[string]any)
 		projectID := int(projectTyped["id"].(float64))
 
 		if len(listProjects) > 0 && lo.Contains(listProjects, projectID) == false {
@@ -294,7 +294,7 @@ func (c *DbtCloudHTTPClient) GetConnections(listProjects []int, warehouses []str
 	// we loop through all the projects to only get the active connections
 	// there are dangling connections in dbt Cloud with state=1 that we don't want to import
 	for _, project := range projects {
-		projectTyped := project.(map[string]interface{})
+		projectTyped := project.(map[string]any)
 		projectID := int(projectTyped["id"].(float64))
 
 		if len(listProjects) > 0 && lo.Contains(listProjects, projectID) == false {
@@ -372,7 +372,7 @@ func (c *DbtCloudHTTPClient) GetCredentials(listProjects []int) []any {
 	// we need to keep only the credentials for active environments
 	allEnvironments := c.GetEnvironments(listProjects)
 	allCredentialIDs := lo.Map(allEnvironments, func(env any, index int) int {
-		credentialID, ok := env.(map[string]interface{})["credentials_id"].(float64)
+		credentialID, ok := env.(map[string]any)["credentials_id"].(float64)
 		if ok {
 			return int(credentialID)
 		} else {
@@ -409,4 +409,10 @@ func (c *DbtCloudHTTPClient) GetExtendedAttributes(listProjects []int) []any {
 		allExtendedAttributes = append(allExtendedAttributes, extendedAttributes)
 	}
 	return allExtendedAttributes
+}
+
+func (c *DbtCloudHTTPClient) GetUsers() []any {
+	url := fmt.Sprintf("%s/v3/accounts/%s/users/", c.HostURL, c.AccountID)
+
+	return c.GetData(url)
 }
