@@ -27,6 +27,7 @@ var resourceImportStringFormats = map[string]string{
 	"dbtcloud_bigquery_connection":  ":project_id::id",
 	"dbtcloud_connection":           ":project_id::id",
 	"dbtcloud_extended_attributes":  ":project_id::id",
+	"dbtcloud_user_groups":          ":user_id",
 }
 
 func init() {
@@ -124,6 +125,9 @@ func runImport() func(cmd *cobra.Command, args []string) {
 			case "dbtcloud_extended_attributes":
 				jsonStructData = dbtCloudClient.GetExtendedAttributes(listFilterProjects)
 
+			case "dbtcloud_user_groups":
+				jsonStructData = dbtCloudClient.GetUsers()
+
 			default:
 				fmt.Fprintf(cmd.OutOrStderr(), "%q is not yet supported for state import", resourceType)
 				return
@@ -178,7 +182,7 @@ func buildTerraformImportCommand(resourceType, resourceID string, data interface
 // buildRawImportAddress takes the resourceType and resourceID in order to lookup the
 // resource type import string and then return a suitable composite value that
 // is compatible with `terraform import`.
-func buildRawImportAddress(resourceType, resourceID string, data interface{}) string {
+func buildRawImportAddress(resourceType, resourceID string, data any) string {
 	if _, ok := resourceImportStringFormats[resourceType]; !ok {
 		log.Fatalf("%s does not have an import format defined", resourceType)
 	}
@@ -186,15 +190,10 @@ func buildRawImportAddress(resourceType, resourceID string, data interface{}) st
 	var identiferType string
 	var identiferValue string
 
-	if accountID != "" {
-		identiferType = "account"
-		identiferValue = accountID
-	} else {
-		identiferType = "zone"
-		identiferValue = zoneID
-	}
+	identiferType = "account"
+	identiferValue = accountID
 
-	connnectionIDRaw, ok := data.(map[string]interface{})["connection_id"]
+	connnectionIDRaw, ok := data.(map[string]any)["connection_id"]
 	var connectionID string
 	if !ok {
 		connectionID = "no-connection_id"
@@ -207,7 +206,7 @@ func buildRawImportAddress(resourceType, resourceID string, data interface{}) st
 		}
 	}
 
-	repositoryIDRaw, ok := data.(map[string]interface{})["repository_id"]
+	repositoryIDRaw, ok := data.(map[string]any)["repository_id"]
 	var repositoryID string
 	if !ok {
 		repositoryID = "no-repository_id"
@@ -215,7 +214,7 @@ func buildRawImportAddress(resourceType, resourceID string, data interface{}) st
 		repositoryID = fmt.Sprintf("%0.f", repositoryIDRaw.(float64))
 	}
 
-	projectIDRaw, ok := data.(map[string]interface{})["project_id"]
+	projectIDRaw, ok := data.(map[string]any)["project_id"]
 	var projectID string
 	if !ok {
 		projectID = "no-project_id"
@@ -223,12 +222,24 @@ func buildRawImportAddress(resourceType, resourceID string, data interface{}) st
 		projectID = fmt.Sprintf("%0.f", projectIDRaw.(float64))
 	}
 
-	nameRaw, ok := data.(map[string]interface{})["name"]
+	nameRaw, ok := data.(map[string]any)["name"]
 	var name string
 	if !ok {
 		name = "no-name"
 	} else {
 		name = nameRaw.(string)
+	}
+
+	var userID string
+	if resourceType == "dbtcloud_user_groups" {
+		// for dbtcloud_user_groups, the ID is the user ID
+		userIDRaw, ok := data.(map[string]any)["id"]
+		_ = userIDRaw
+		if !ok {
+			userID = "no-userid"
+		} else {
+			userID = fmt.Sprintf("%0.f", userIDRaw.(float64))
+		}
 	}
 
 	s := resourceImportStringFormats[resourceType]
@@ -242,6 +253,7 @@ func buildRawImportAddress(resourceType, resourceID string, data interface{}) st
 		":repository_id", repositoryID,
 		":project_id", projectID,
 		":name", name,
+		":user_id", userID,
 	)
 
 	return replacer.Replace(s)

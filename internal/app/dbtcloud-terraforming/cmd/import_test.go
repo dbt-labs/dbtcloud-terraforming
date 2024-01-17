@@ -22,11 +22,13 @@ func TestResourceImport(t *testing.T) {
 		changesExpected     []string
 		projects            string
 	}{
+		// account level resource
+		"dbt Cloud groups":      {resourceTypes: "dbtcloud_group", testdataFilename: "dbtcloud_group"},
+		"dbt Cloud user groups": {resourceTypes: "dbtcloud_user_groups", testdataFilename: "dbtcloud_user_groups"},
 		// single resource
 		"dbt Cloud BigQuery connection":   {resourceTypes: "dbtcloud_bigquery_connection", testdataFilename: "dbtcloud_bigquery_connection", changesExpected: []string{"private_key", "application_id", "private_key"}},
 		"dbt Cloud BigQuery credentials":  {resourceTypes: "dbtcloud_bigquery_credential", testdataFilename: "dbtcloud_bigquery_credential"},
 		"dbt Cloud environments":          {resourceTypes: "dbtcloud_environment", testdataFilename: "dbtcloud_environment"},
-		"dbt Cloud groups":                {resourceTypes: "dbtcloud_group", testdataFilename: "dbtcloud_group"},
 		"dbt Cloud jobs":                  {resourceTypes: "dbtcloud_job", testdataFilename: "dbtcloud_job"},
 		"dbt Cloud projects":              {resourceTypes: "dbtcloud_project", testdataFilename: "dbtcloud_project"},
 		"dbt Cloud project connection":    {resourceTypes: "dbtcloud_project_connection", testdataFilename: "dbtcloud_project_connection"},

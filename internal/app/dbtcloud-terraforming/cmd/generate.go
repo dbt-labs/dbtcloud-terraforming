@@ -255,46 +255,6 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 
 				resourceCount = len(jsonStructData)
 
-			case "dbtcloud_group":
-
-				listGroups := dbtCloudClient.GetGroups()
-
-				for _, group := range listGroups {
-					groupTyped := group.(map[string]any)
-
-					defaultGroups := []string{"Owner", "Member", "Everyone"}
-
-					// we check if the group is one of the default ones
-					_, ok := lo.Find(defaultGroups, func(i string) bool {
-						return i == groupTyped["name"].(string)
-					})
-					// remove the default groups
-					if ok {
-						continue
-					}
-
-					if linkResource("dbtcloud_project") {
-
-						groupPermissions, ok := groupTyped["group_permissions"].([]any)
-						if !ok {
-							panic("Could not cast group_permissions to []any")
-						}
-						newGroupPermissionsTyped := []map[string]any{}
-						for _, groupPermission := range groupPermissions {
-							groupPermissionTyped := groupPermission.(map[string]any)
-							if groupPermissionTyped["all_projects"] == false {
-								groupPermissionTyped["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%0.f.id", groupPermissionTyped["project_id"].(float64))
-							}
-							newGroupPermissionsTyped = append(newGroupPermissionsTyped, groupPermissionTyped)
-						}
-						groupTyped["group_permissions"] = newGroupPermissionsTyped
-
-					}
-					jsonStructData = append(jsonStructData, group)
-				}
-
-				resourceCount = len(jsonStructData)
-
 			case "dbtcloud_environment_variable":
 
 				mapEnvVars := dbtCloudClient.GetEnvironmentVariables(listFilterProjects)
@@ -516,10 +476,84 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 
 				resourceCount = len(jsonStructData)
 
+			// not limited by project
+
+			case "dbtcloud_group":
+
+				listGroups := dbtCloudClient.GetGroups()
+
+				for _, group := range listGroups {
+					groupTyped := group.(map[string]any)
+
+					defaultGroups := []string{"Owner", "Member", "Everyone"}
+
+					// we check if the group is one of the default ones
+					_, ok := lo.Find(defaultGroups, func(i string) bool {
+						return i == groupTyped["name"].(string)
+					})
+					// remove the default groups
+					if ok {
+						continue
+					}
+
+					if linkResource("dbtcloud_project") {
+
+						groupPermissions, ok := groupTyped["group_permissions"].([]any)
+						if !ok {
+							panic("Could not cast group_permissions to []any")
+						}
+						newGroupPermissionsTyped := []map[string]any{}
+						for _, groupPermission := range groupPermissions {
+							groupPermissionTyped := groupPermission.(map[string]any)
+							if groupPermissionTyped["all_projects"] == false {
+								groupPermissionTyped["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%0.f.id", groupPermissionTyped["project_id"].(float64))
+							}
+							newGroupPermissionsTyped = append(newGroupPermissionsTyped, groupPermissionTyped)
+						}
+						groupTyped["group_permissions"] = newGroupPermissionsTyped
+
+					}
+					jsonStructData = append(jsonStructData, group)
+				}
+
+				resourceCount = len(jsonStructData)
+
+			case "dbtcloud_user_groups":
+				listUsers := dbtCloudClient.GetUsers()
+
+				for _, user := range listUsers {
+					userTyped := user.(map[string]any)
+
+					userTyped["user_id"] = userTyped["id"].(float64)
+
+					userPermissionsArray := userTyped["permissions"].([]any)
+					userPermissions := userPermissionsArray[0].(map[string]any)
+					groupIDs := []int{}
+
+					for _, group := range userPermissions["groups"].([]any) {
+						groupTyped := group.(map[string]any)
+						groupIDs = append(groupIDs, int(groupTyped["id"].(float64)))
+					}
+					userTyped["group_ids"] = groupIDs
+
+					if linkResource("dbtcloud_group") {
+						linkedGroupIDs := lo.Map(groupIDs, func(i int, index int) string {
+							return fmt.Sprintf("dbtcloud_group.terraform_managed_resource_%d.id", i)
+						})
+						userTyped["group_ids"] = linkedGroupIDs
+					}
+
+					jsonStructData = append(jsonStructData, userTyped)
+				}
+				// jsonStructData = listUsers
+
+				resourceCount = len(jsonStructData)
+
 			default:
 				fmt.Fprintf(cmd.OutOrStderr(), "%q is not yet supported for automatic generation", resourceType)
 				return
 			}
+
 			// If we don't have any resources to generate, just bail out early.
 			if resourceCount == 0 {
 				fmt.Fprint(cmd.OutOrStderr(), "no resources found to generate. Exiting...")
