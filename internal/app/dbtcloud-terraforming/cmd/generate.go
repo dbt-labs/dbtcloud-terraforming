@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"sort"
+	"strings"
 
 	"github.com/hashicorp/go-version"
 	"github.com/hashicorp/hc-install/product"
