@@ -29,7 +29,9 @@ func strIsResourceType(str string) bool {
 			dotCount++
 		}
 	}
-	return startsWith && dotCount == 2
+	// when we use depends_on there is one dot
+	// when we link resource attributes, there are two dots
+	return startsWith && dotCount >= 1
 }
 
 func contains(slice []string, item string) bool {
@@ -272,13 +274,15 @@ func writeAttrLine(key string, value interface{}, parentName string, body *hclwr
 		var items []string
 		items = append(items, value.([]string)...)
 		if len(items) > 0 {
-			if key != "depends_on" {
+			// if the key isn't used to link a resource type, we can use the string values
+			if !strIsResourceType(items[0]) {
 				var vals []cty.Value
 				for _, item := range items {
 					vals = append(vals, cty.StringVal(item))
 				}
 				body.SetAttributeValue(key, cty.ListVal(vals))
 			} else {
+				// otherwise we need to use the raw tokens
 				tokens := []*hclwrite.Token{{Type: hclsyntax.TokenIdent, Bytes: []byte("[\n")}}
 				for _, item := range items {
 					tokens = append(tokens, &hclwrite.Token{Type: hclsyntax.TokenIdent, Bytes: []byte(item + ",\n")})

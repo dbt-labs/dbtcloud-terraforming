@@ -367,17 +367,29 @@ func (c *DbtCloudHTTPClient) GetWarehouseCredentials(listProjects []int, warehou
 
 func (c *DbtCloudHTTPClient) GetCredentials(listProjects []int) []any {
 	url := fmt.Sprintf("%s/v3/accounts/%s/credentials/", c.HostURL, c.AccountID)
+	allCredentials := c.GetData(url)
 
-	// we need to remove all the credentials mapped to projects that are not active
-	// those stay dangling in dbt Cloud
-
-	allProjects := c.GetProjects(listProjects)
-	allProjectIDs := lo.Map(allProjects, func(project any, index int) int {
-		return int(project.(map[string]interface{})["id"].(float64))
+	// we need to keep only the credentials for active environments
+	allEnvironments := c.GetEnvironments(listProjects)
+	allCredentialIDs := lo.Map(allEnvironments, func(env any, index int) int {
+		credentialID, ok := env.(map[string]interface{})["credentials_id"].(float64)
+		if ok {
+			return int(credentialID)
+		} else {
+			// some environments don't have credentials, so we default to -1 to avoid matching real environment IDs
+			return -1
+		}
 	})
 
-	allCredentials := c.GetData(url)
-	filteredCredentials := filterByProject(allCredentials, allProjectIDs)
+	filteredCredentials := []any{}
+	for _, credential := range allCredentials {
+		dataTyped := credential.(map[string]any)
+		credentialsID := dataTyped["id"].(float64)
+		if lo.Contains(allCredentialIDs, int(credentialsID)) == false {
+			continue
+		}
+		filteredCredentials = append(filteredCredentials, credential)
+	}
 	return filteredCredentials
 }
 
