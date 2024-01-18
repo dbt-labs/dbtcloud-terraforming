@@ -114,6 +114,12 @@ func (c *DbtCloudHTTPClient) GetEndpoint(url string) (error, []byte) {
 	if err != nil {
 		log.Fatalf("Error reading body: %v", err)
 	}
+
+	// 400 and more are errors, either on the client side or the server side
+	if resp.StatusCode >= 400 {
+		log.Fatalf("Error fetching URL %v: Status %v -- %v", url, resp.Status, string(jsonPayload))
+	}
+
 	return err, jsonPayload
 }
 
