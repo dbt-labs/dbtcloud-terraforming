@@ -71,10 +71,18 @@ Notes:
 
 ### Installation
 
+#### All OSes
+
 Download the executable for your platform [from the GitHUb releases page](https://github.com/dbt-labs/dbtcloud-terraforming/releases/tag/v0.2.0) and extract it.
 You can then add it to your PATH and run it with `dbtcloud-terraforming` or run it based on its location (e.g. `./dbtcloud-terraforming`).
 
-(WIP) There will soon be the ability to install the CLI from `homebrew` for MacOS and Linux.
+To update to the latest version, you can head back to the release page and download and extract the executable again.
+
+#### MacOS and Linux
+
+The CLI can be installed with `brew`, running `brew install dbt-labs/dbt-cli/dbtcloud-terraforming`.
+
+To update to the latest version, you can run `brew upgrade dbt-labs/dbt-cli/dbtcloud-terraforming`.
 
 ### Connecting to dbt Cloud
 
