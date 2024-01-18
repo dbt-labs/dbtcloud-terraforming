@@ -37,3 +37,4 @@ brews:
     repository:
       owner: dbt-labs
       name: homebrew-dbt-cli
+      token: "{{ secrets.GH_HOMEBREW }}"
