@@ -20,16 +20,16 @@ Available Commands:
   version     Print the version number of dbtcloud-terraforming
 
 Flags:
-  -a, --account string                  Use specific account ID for commands
+  -a, --account string                  Use specific account ID for commands. [env var: DBT_CLOUD_ACCOUNT_ID]
   -h, --help                            help for dbtcloud-terraforming
-      --host-url string                 Host URL to use to query the API, includes the /api part
-      --linked-resource-types strings   List of resource types to make dependencies links to instead of using IDs. Can be set to all for linking all resources.
+      --host-url string                 Host URL to use to query the API, includes the /api part. [env var: DBT_CLOUD_HOST_URL]
+      --linked-resource-types strings   List of resource types to make dependencies links to instead of using IDs. Can be set to 'all' for linking all resources
       --modern-import-block             Whether to generate HCL import blocks for generated resources instead of terraform import compatible CLI commands. This is only compatible with Terraform 1.5+
-  -p, --projects ints                   Project IDs to limit the import for
+  -p, --projects ints                   Project IDs to limit the import for. Imports all projects if not set. [env var: DBT_CLOUD_PROJECTS]
       --resource-types strings          List of resource types you wish to generate
       --terraform-binary-path string    Path to an existing Terraform binary (otherwise, one will be downloaded)
       --terraform-install-path string   Path to an initialized Terraform working directory (default ".")
-  -t, --token string                    API Token
+  -t, --token string                    API Token. [env var: DBT_CLOUD_TOKEN]
   -v, --verbose                         Specify verbose output (same as setting log level to debug)
 ```
 
