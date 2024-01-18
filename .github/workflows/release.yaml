@@ -27,3 +27,4 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ env.VERSION }}
+          GH_HOMEBREW: ${{ secrets.GH_HOMEBREW }}
