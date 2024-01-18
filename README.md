@@ -110,7 +110,25 @@ $Env:DBT_CLOUD_HOST_URL = 'http://emea.dbt.com/api'
 
 ### Executing the tool
 
-Download the tool and run commands like below:
+#### Pre-requisite
+
+By default, the tool requires a file called `main.tf` with information about the dbt Cloud Terraform provider, in the current directory:
+
+```tf
+terraform {
+  required_providers {
+    dbtcloud = {
+      source = "dbt-labs/dbtcloud"
+    }
+  }
+}
+```
+
+If you already have a file defining the provider, you can point `dbtcloud-terraforming` to it via the flag `--terraform-install-path`
+
+#### Running the different commands
+
+Install the tool and run commands like below:
 
 To generate the config
 
@@ -132,7 +150,7 @@ Generating and importing multiple resource types at once is possible by separati
 
 ### Selecting specific projects
 
-By default, the tool loads all projects but we can restrict the projects to focus on by selecting `--projects 123,456,789` with 123, 456 and 789 being the projects we want to load in Terraform
+By default, the tool loads all projects but we can restrict the projects to focus on by selecting `--projects 123,456,789` with `123`, `456` and `789` being the projects we want to load in Terraform
 
 ### Linking resources in the configuration
 
