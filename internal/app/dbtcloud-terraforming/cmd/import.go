@@ -43,6 +43,9 @@ var importCommand = &cobra.Command{
 
 func runImport() func(cmd *cobra.Command, args []string) {
 	return func(cmd *cobra.Command, args []string) {
+		if len(resourceTypes) == 0 {
+			log.Fatal("you must define at least one --resource-types to generate the import commands/code")
+		}
 		var jsonStructData []interface{}
 
 		accountID = viper.GetString("account")

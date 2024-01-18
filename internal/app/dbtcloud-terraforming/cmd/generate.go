@@ -42,7 +42,7 @@ func linkResource(resourceType string) bool {
 func generateResources() func(cmd *cobra.Command, args []string) {
 	return func(cmd *cobra.Command, args []string) {
 		if len(resourceTypes) == 0 {
-			log.Fatal("you must define a resource type to generate")
+			log.Fatal("you must define at least one --resource-types to generate the config")
 		}
 
 		listFilterProjects = viper.GetIntSlice("projects")
