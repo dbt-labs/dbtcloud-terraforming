@@ -28,6 +28,8 @@ var resourceImportStringFormats = map[string]string{
 	"dbtcloud_connection":           ":project_id::id",
 	"dbtcloud_extended_attributes":  ":project_id::id",
 	"dbtcloud_user_groups":          ":user_id",
+	"dbtcloud_webhook":              ":id",
+	"dbtcloud_notification":         ":id",
 }
 
 func init() {
@@ -130,6 +132,12 @@ func runImport() func(cmd *cobra.Command, args []string) {
 
 			case "dbtcloud_user_groups":
 				jsonStructData = dbtCloudClient.GetUsers()
+
+			case "dbtcloud_webhook":
+				jsonStructData = dbtCloudClient.GetWebhooks()
+
+			case "dbtcloud_notification":
+				jsonStructData = dbtCloudClient.GetNotifications()
 
 			default:
 				fmt.Fprintf(cmd.OutOrStderr(), "%q is not yet supported for state import", resourceType)

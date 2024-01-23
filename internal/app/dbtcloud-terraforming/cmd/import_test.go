@@ -23,8 +23,10 @@ func TestResourceImport(t *testing.T) {
 		projects            string
 	}{
 		// account level resource
-		"dbt Cloud groups":      {resourceTypes: "dbtcloud_group", testdataFilename: "dbtcloud_group"},
-		"dbt Cloud user groups": {resourceTypes: "dbtcloud_user_groups", testdataFilename: "dbtcloud_user_groups"},
+		"dbt Cloud groups":        {resourceTypes: "dbtcloud_group", testdataFilename: "dbtcloud_group"},
+		"dbt Cloud user groups":   {resourceTypes: "dbtcloud_user_groups", testdataFilename: "dbtcloud_user_groups"},
+		"dbt Cloud webhooks":      {resourceTypes: "dbtcloud_webhook", testdataFilename: "dbtcloud_webhook"},
+		"dbt Cloud notifications": {resourceTypes: "dbtcloud_notification", testdataFilename: "dbtcloud_notification"},
 		// single resource
 		"dbt Cloud BigQuery connection":   {resourceTypes: "dbtcloud_bigquery_connection", testdataFilename: "dbtcloud_bigquery_connection", changesExpected: []string{"private_key", "application_id", "private_key"}},
 		"dbt Cloud BigQuery credentials":  {resourceTypes: "dbtcloud_bigquery_credential", testdataFilename: "dbtcloud_bigquery_credential"},
@@ -44,6 +46,7 @@ func TestResourceImport(t *testing.T) {
 		// multiple at once
 		"dbt Cloud environments and extended attributes": {resourceTypes: "dbtcloud_environment,dbtcloud_extended_attributes", testdataFilename: "dbtcloud_env_extended_attributes", listLinkedResources: "dbtcloud_extended_attributes", projects: "2570"},
 		"dbt Cloud projects and envs":                    {resourceTypes: "dbtcloud_project,dbtcloud_environment", testdataFilename: "dbtcloud_project_env", listLinkedResources: "dbtcloud_project"},
+		"dbt Cloud webhooks and jobs":                    {resourceTypes: "dbtcloud_webhook,dbtcloud_job", testdataFilename: "dbtcloud_webhook_job", listLinkedResources: "dbtcloud_job"},
 	}
 
 	for name, tc := range tests {
