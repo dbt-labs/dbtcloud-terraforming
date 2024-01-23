@@ -545,8 +545,60 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 
 					jsonStructData = append(jsonStructData, userTyped)
 				}
-				// jsonStructData = listUsers
 
+				resourceCount = len(jsonStructData)
+
+			case "dbtcloud_webhook":
+
+				listWebhooks := dbtCloudClient.GetWebhooks()
+				for _, webhook := range listWebhooks {
+					webhookTyped := webhook.(map[string]any)
+
+					if linkResource("dbtcloud_job") {
+						jobIDs := []string{}
+						for _, jobID := range webhookTyped["job_ids"].([]any) {
+							jobIDTyped := jobID.(string)
+							jobIDs = append(jobIDs, jobIDTyped)
+						}
+						linkedJobIDs := lo.Map(jobIDs, func(s string, index int) string {
+							return fmt.Sprintf("dbtcloud_job.terraform_managed_resource_%s.id", s)
+						})
+						webhookTyped["job_ids"] = linkedJobIDs
+					}
+
+					jsonStructData = append(jsonStructData, webhookTyped)
+				}
+				resourceCount = len(jsonStructData)
+
+			case "dbtcloud_notification":
+
+				listNotifications := dbtCloudClient.GetNotifications()
+				for _, notification := range listNotifications {
+					notificationTyped := notification.(map[string]any)
+
+					notificationTyped["notification_type"] = notificationTyped["type"].(float64)
+					notificationTyped["state"] = nil
+
+					if linkResource("dbtcloud_job") {
+						listOns := []string{"on_cancel", "on_failure", "on_success"}
+
+						for _, notifHook := range listOns {
+
+							jobIDs := []float64{}
+
+							for _, jobID := range notificationTyped[notifHook].([]any) {
+								jobIDTyped := jobID.(float64)
+								jobIDs = append(jobIDs, jobIDTyped)
+							}
+							linkedJobIDs := lo.Map(jobIDs, func(f float64, index int) string {
+								return fmt.Sprintf("dbtcloud_job.terraform_managed_resource_%.0f.id", f)
+							})
+							notificationTyped[notifHook] = linkedJobIDs
+						}
+					}
+
+					jsonStructData = append(jsonStructData, notificationTyped)
+				}
 				resourceCount = len(jsonStructData)
 
 			default:

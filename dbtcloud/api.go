@@ -4,12 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/samber/lo"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/time/rate"
 )
 
@@ -57,6 +57,8 @@ type RateLimitedTransport struct {
 	*http.Transport
 	limiter *rate.Limiter
 }
+
+var log = logrus.New()
 
 // RoundTrip overrides the http.RoundTrip to implement rate limiting.
 func (t *RateLimitedTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -117,7 +119,7 @@ func (c *DbtCloudHTTPClient) GetEndpoint(url string) (error, []byte) {
 
 	// 400 and more are errors, either on the client side or the server side
 	if resp.StatusCode >= 400 {
-		log.Fatalf("Error fetching URL %v: Status %v -- %v", url, resp.Status, string(jsonPayload))
+		log.WithFields(logrus.Fields{"status": resp.Status, "body": string(jsonPayload)}).Fatalf("Error fetching URL %v", url)
 	}
 
 	return err, jsonPayload
@@ -419,6 +421,18 @@ func (c *DbtCloudHTTPClient) GetExtendedAttributes(listProjects []int) []any {
 
 func (c *DbtCloudHTTPClient) GetUsers() []any {
 	url := fmt.Sprintf("%s/v3/accounts/%s/users/", c.HostURL, c.AccountID)
+
+	return c.GetData(url)
+}
+
+func (c *DbtCloudHTTPClient) GetWebhooks() []any {
+	url := fmt.Sprintf("%s/v3/accounts/%s/webhooks/subscriptions", c.HostURL, c.AccountID)
+
+	return c.GetData(url)
+}
+
+func (c *DbtCloudHTTPClient) GetNotifications() []any {
+	url := fmt.Sprintf("%s/v2/accounts/%s/notifications/", c.HostURL, c.AccountID)
 
 	return c.GetData(url)
 }
