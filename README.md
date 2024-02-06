@@ -97,7 +97,7 @@ Example:
 ```sh
 export DBT_CLOUD_TOKEN=<token>
 export DBT_CLOUD_ACCOUNT_ID=123
-export DBT_CLOUD_HOST_URL="http://emea.dbt.com/api"
+export DBT_CLOUD_HOST_URL="https://emea.dbt.com/api"
 ```
 
 or for Powershell
@@ -105,7 +105,7 @@ or for Powershell
 ```sh
 $Env:DBT_CLOUD_TOKEN = '<token>'
 $Env:DBT_CLOUD_ACCOUNT_ID = 123
-$Env:DBT_CLOUD_HOST_URL = 'http://emea.dbt.com/api'
+$Env:DBT_CLOUD_HOST_URL = 'https://emea.dbt.com/api'
 ```
 
 ### Executing the tool
