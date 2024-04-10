@@ -40,13 +40,14 @@ func TestResourceImport(t *testing.T) {
 		// single resource with filter by project
 		"dbt Cloud connection - Databricks": {resourceTypes: "dbtcloud_connection", testdataFilename: "dbtcloud_connection_databricks", projects: "43", changesExpected: []string{"database"}},
 		"dbt Cloud connection - Snowflake":  {resourceTypes: "dbtcloud_connection", testdataFilename: "dbtcloud_connection_snowflake", projects: "71", changesExpected: []string{"oauth_client_id", "oauth_client_secret"}},
-		"dbt Cloud extended attributes":     {resourceTypes: "dbtcloud_extended_attributes", testdataFilename: "dbtcloud_extended_attributes", projects: "2570"},
-		"dbt Cloud environment variables":   {resourceTypes: "dbtcloud_environment_variable", testdataFilename: "dbtcloud_environment_variable", projects: "2570"},
+		"dbt Cloud extended attributes":     {resourceTypes: "dbtcloud_extended_attributes", testdataFilename: "dbtcloud_extended_attributes", projects: "71"},
+		"dbt Cloud environment variables":   {resourceTypes: "dbtcloud_environment_variable", testdataFilename: "dbtcloud_environment_variable", projects: "71"},
 		"dbt Cloud jobs one project":        {resourceTypes: "dbtcloud_job", testdataFilename: "dbtcloud_job_single_project", projects: "43"},
 		// multiple at once
-		"dbt Cloud environments and extended attributes": {resourceTypes: "dbtcloud_environment,dbtcloud_extended_attributes", testdataFilename: "dbtcloud_env_extended_attributes", listLinkedResources: "dbtcloud_extended_attributes", projects: "2570"},
-		"dbt Cloud projects and envs":                    {resourceTypes: "dbtcloud_project,dbtcloud_environment", testdataFilename: "dbtcloud_project_env", listLinkedResources: "dbtcloud_project"},
-		"dbt Cloud webhooks and jobs":                    {resourceTypes: "dbtcloud_webhook,dbtcloud_job", testdataFilename: "dbtcloud_webhook_job", listLinkedResources: "dbtcloud_job"},
+		"dbt Cloud environments and extended attributes":   {resourceTypes: "dbtcloud_environment,dbtcloud_extended_attributes", testdataFilename: "dbtcloud_env_extended_attributes", listLinkedResources: "dbtcloud_extended_attributes", projects: "71"},
+		"dbt Cloud environments and Snowflake credentials": {resourceTypes: "dbtcloud_environment,dbtcloud_snowflake_credential", testdataFilename: "dbtcloud_env_snowflake_credential", listLinkedResources: "dbtcloud_snowflake_credential", projects: "71", changesExpected: []string{"password"}},
+		"dbt Cloud projects and envs":                      {resourceTypes: "dbtcloud_project,dbtcloud_environment", testdataFilename: "dbtcloud_project_env", listLinkedResources: "dbtcloud_project"},
+		"dbt Cloud webhooks and jobs":                      {resourceTypes: "dbtcloud_webhook,dbtcloud_job", testdataFilename: "dbtcloud_webhook_job", listLinkedResources: "dbtcloud_job"},
 	}
 
 	for name, tc := range tests {

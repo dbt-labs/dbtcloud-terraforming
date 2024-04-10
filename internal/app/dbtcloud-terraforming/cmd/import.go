@@ -217,12 +217,12 @@ func buildRawImportAddress(resourceType, resourceID string, data any) string {
 		}
 	}
 
-	repositoryIDRaw, ok := data.(map[string]any)["repository_id"]
+	repositoryIDCasted, ok := data.(map[string]any)["repository_id"].(float64)
 	var repositoryID string
 	if !ok {
 		repositoryID = "no-repository_id"
 	} else {
-		repositoryID = fmt.Sprintf("%0.f", repositoryIDRaw.(float64))
+		repositoryID = fmt.Sprintf("%0.f", repositoryIDCasted)
 	}
 
 	projectIDRaw, ok := data.(map[string]any)["project_id"]

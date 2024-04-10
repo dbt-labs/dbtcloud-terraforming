@@ -199,9 +199,18 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 
 					// handle the case when credentialID is not a float because it is null
 					if credentialID, ok := environmentsTyped["credentials_id"].(float64); ok {
+
 						environmentsTyped["credential_id"] = credentialID
-						if linkResource("dbtcloud_credential") {
-							environmentsTyped["credential_id"] = fmt.Sprintf("dbtcloud_credential.terraform_managed_resource_%0.f.id", credentialID)
+						if linkResource("dbtcloud_snowflake_credential") || linkResource("dbtcloud_bigquery_credential") {
+
+							credentials := environmentsTyped["credentials"].(map[string]any)
+							credentialsType := credentials["type"].(string)
+
+							if !lo.Contains([]string{"snowflake", "bigquery"}, credentialsType) {
+								panic("Only Snowflake and BigQuery credentials are supported for now. Please raise an issue in the repo if you would like to see other adapter supported")
+							}
+
+							environmentsTyped["credential_id"] = fmt.Sprintf("dbtcloud_%s_credential.terraform_managed_resource_%0.f.credential_id", credentialsType, credentialID)
 						}
 					}
 
