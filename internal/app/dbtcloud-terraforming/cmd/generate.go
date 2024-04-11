@@ -165,7 +165,6 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 					triggers := map[string]any{
 						"github_webhook":       jobTriggers["github_webhook"].(bool),
 						"git_provider_webhook": jobTriggers["git_provider_webhook"].(bool),
-						"custom_branch_only":   false,
 						"schedule":             jobTriggers["schedule"].(bool),
 					}
 
@@ -178,6 +177,31 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 					if linkResource("dbtcloud_project") {
 						projectID := jobTyped["project_id"].(float64)
 						jobTyped["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%0.f.id", projectID)
+					}
+
+					jobCompletionTrigger, ok := jobTyped["job_completion_trigger_condition"].(map[string]any)
+					// if it is not null and actually a map
+					if ok {
+						jobCompletionTriggerCondition := jobCompletionTrigger["condition"].(map[string]any)
+
+						projectID := jobCompletionTriggerCondition["project_id"].(float64)
+						jobID := jobCompletionTriggerCondition["job_id"].(float64)
+
+						completionTriggers := map[string]any{
+							"job_id":     jobID,
+							"project_id": projectID,
+							"statuses":   mapJobStatusCodeToText(jobCompletionTriggerCondition["statuses"].([]any)),
+						}
+
+						if linkResource("dbtcloud_job") {
+							completionTriggers["job_id"] = fmt.Sprintf("dbtcloud_job.terraform_managed_resource_%0.f.id", jobID)
+						}
+
+						if linkResource("dbtcloud_project") {
+							completionTriggers["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%0.f.id", projectID)
+						}
+
+						jobTyped["job_completion_trigger_condition"] = completionTriggers
 					}
 
 					jsonStructData = append(jsonStructData, jobTyped)
@@ -617,7 +641,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 
 			// If we don't have any resources to generate, just bail out early.
 			if resourceCount == 0 {
-				fmt.Fprint(cmd.OutOrStderr(), "no resources found to generate. Exiting...")
+				fmt.Fprintf(cmd.OutOrStderr(), "no resources of type %q found to generate", resourceType)
 				return
 			}
 
@@ -652,6 +676,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 
 				// Block attributes are for any attributes where assignment is involved.
 				for _, attrName := range sortedBlockAttributes {
+					log.Debugf("checking the attribute %s", attrName)
 					// Don't bother outputting the ID for the resource as that is only for
 					// internal use (such as importing state).
 					if attrName == "id" {
