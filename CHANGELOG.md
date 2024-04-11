@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.0 (2024-04-11)
+
+- Allow importing jobs with job completion triggers
+
+## 0.4.1 (2024-04-10)
+
+- Fix linking repositories and credentials for Snowflake and BigQuery
+
 ## 0.4.0 (2024-01-23)
 
 - Add support for `dbtcloud_webhook` and `dbtcloud_notification`
