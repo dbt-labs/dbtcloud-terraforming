@@ -43,11 +43,12 @@ func TestResourceImport(t *testing.T) {
 		"dbt Cloud extended attributes":     {resourceTypes: "dbtcloud_extended_attributes", testdataFilename: "dbtcloud_extended_attributes", projects: "71"},
 		"dbt Cloud environment variables":   {resourceTypes: "dbtcloud_environment_variable", testdataFilename: "dbtcloud_environment_variable", projects: "71"},
 		"dbt Cloud jobs one project":        {resourceTypes: "dbtcloud_job", testdataFilename: "dbtcloud_job_single_project", projects: "43"},
-		// multiple at once
+		// multiple at once - linking resources
 		"dbt Cloud environments and extended attributes":   {resourceTypes: "dbtcloud_environment,dbtcloud_extended_attributes", testdataFilename: "dbtcloud_env_extended_attributes", listLinkedResources: "dbtcloud_extended_attributes", projects: "71"},
 		"dbt Cloud environments and Snowflake credentials": {resourceTypes: "dbtcloud_environment,dbtcloud_snowflake_credential", testdataFilename: "dbtcloud_env_snowflake_credential", listLinkedResources: "dbtcloud_snowflake_credential", projects: "71", changesExpected: []string{"password"}},
 		"dbt Cloud projects and envs":                      {resourceTypes: "dbtcloud_project,dbtcloud_environment", testdataFilename: "dbtcloud_project_env", listLinkedResources: "dbtcloud_project"},
 		"dbt Cloud webhooks and jobs":                      {resourceTypes: "dbtcloud_webhook,dbtcloud_job", testdataFilename: "dbtcloud_webhook_job", listLinkedResources: "dbtcloud_job"},
+		"dbt Cloud jobs with jobs completion trigger":      {resourceTypes: "dbtcloud_job", testdataFilename: "dbtcloud_job_completion_trigger", listLinkedResources: "dbtcloud_job", projects: "43"},
 	}
 
 	for name, tc := range tests {
