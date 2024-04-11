@@ -198,18 +198,18 @@ func buildRawImportAddress(resourceType, resourceID string, data any) string {
 		log.Fatalf("%s does not have an import format defined", resourceType)
 	}
 
-	var identiferType string
-	var identiferValue string
+	var identifierType string
+	var identifierValue string
 
-	identiferType = "account"
-	identiferValue = accountID
+	identifierType = "account"
+	identifierValue = accountID
 
-	connnectionIDRaw, ok := data.(map[string]any)["connection_id"]
+	connectionIDRaw, ok := data.(map[string]any)["connection_id"]
 	var connectionID string
 	if !ok {
 		connectionID = "no-connection_id"
 	} else {
-		connectionIDFloat, ok := connnectionIDRaw.(float64)
+		connectionIDFloat, ok := connectionIDRaw.(float64)
 		if !ok {
 			connectionID = "no-connection_id"
 		} else {
@@ -255,8 +255,8 @@ func buildRawImportAddress(resourceType, resourceID string, data any) string {
 
 	s := resourceImportStringFormats[resourceType]
 	replacer := strings.NewReplacer(
-		":identifier_type", identiferType,
-		":identifier_value", identiferValue,
+		":identifier_type", identifierType,
+		":identifier_value", identifierValue,
 		":zone_id", zoneID,
 		":account_id", accountID,
 		":id", resourceID,
