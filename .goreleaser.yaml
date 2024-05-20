@@ -2,7 +2,7 @@ project_name: dbtcloud-terraforming
 builds:
   - main: ./cmd/dbtcloud-terraforming/main.go
     ldflags:
-      - -s -w -X "github.com/dbt-labs/dbtcloud-terraforming/internal/app/dbtcloud-terraforming/cmd.versionString={{.Env.VERSION}}"
+      - -s -w -X "github.com/dbt-labs/dbtcloud-terraforming/internal/app/dbtcloud-terraforming/cmd.versionString={{.Env.VERSION}}" -X "github.com/dbt-labs/dbtcloud-terraforming/dbtcloud.versionString={{.Env.VERSION}}"
     env:
       - CGO_ENABLED=0
     goos:

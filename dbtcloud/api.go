@@ -13,6 +13,8 @@ import (
 	"golang.org/x/time/rate"
 )
 
+var versionString = "dev"
+
 type Response struct {
 	Data  []any `json:"data"`
 	Extra Extra `json:"extra"`
@@ -94,11 +96,17 @@ func (c *DbtCloudHTTPClient) Do(req *http.Request) (*http.Response, error) {
 	// Add default headers to the request
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.APIToken))
 
+	userAgentWithVersion := fmt.Sprintf(
+		"dbtcloud-terraforming/%s",
+		versionString,
+	)
+	req.Header.Set("User-Agent", userAgentWithVersion)
+
 	// Perform the request
 	return c.Client.Do(req)
 }
 
-func (c *DbtCloudHTTPClient) GetEndpoint(url string) (error, []byte) {
+func (c *DbtCloudHTTPClient) GetEndpoint(url string) ([]byte, error) {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		log.Fatalf("Error creating a new request: %v", err)
@@ -122,12 +130,15 @@ func (c *DbtCloudHTTPClient) GetEndpoint(url string) (error, []byte) {
 		log.WithFields(logrus.Fields{"status": resp.Status, "body": string(jsonPayload)}).Fatalf("Error fetching URL %v", url)
 	}
 
-	return err, jsonPayload
+	return jsonPayload, err
 }
 
 func (c *DbtCloudHTTPClient) GetSingleData(url string) any {
 
-	err, jsonPayload := c.GetEndpoint(url)
+	jsonPayload, err := c.GetEndpoint(url)
+	if err != nil {
+		log.Fatal(err)
+	}
 	var response SingleResponse
 
 	err = json.Unmarshal(jsonPayload, &response)
@@ -141,7 +152,7 @@ func (c *DbtCloudHTTPClient) GetSingleData(url string) any {
 func (c *DbtCloudHTTPClient) GetData(url string) []any {
 
 	// get the first page
-	err, jsonPayload := c.GetEndpoint(url)
+	jsonPayload, err := c.GetEndpoint(url)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -167,7 +178,10 @@ func (c *DbtCloudHTTPClient) GetData(url string) []any {
 			newURL = fmt.Sprintf("%s?offset=%d", url, count)
 		}
 
-		err, jsonPayload := c.GetEndpoint(newURL)
+		jsonPayload, err := c.GetEndpoint(newURL)
+		if err != nil {
+			log.Fatal(err)
+		}
 		var response Response
 
 		err = json.Unmarshal(jsonPayload, &response)
@@ -190,7 +204,10 @@ func (c *DbtCloudHTTPClient) GetData(url string) []any {
 
 func (c *DbtCloudHTTPClient) GetDataEnvVars(url string) map[string]any {
 
-	err, jsonPayload := c.GetEndpoint(url)
+	jsonPayload, err := c.GetEndpoint(url)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	var response EnvVarResponse
 
@@ -408,7 +425,7 @@ func (c *DbtCloudHTTPClient) GetExtendedAttributes(listProjects []int) []any {
 	for _, env := range envs {
 		envTyped := env.(map[string]any)
 		extendedAttributesID, err := envTyped["extended_attributes_id"].(float64)
-		if err != true {
+		if !err {
 			continue
 		}
 		projectID := envTyped["project_id"].(float64)
