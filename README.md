@@ -37,28 +37,28 @@ This tool can be used to load existing dbt Cloud configuration into Terraform. C
 
 | Resource                                   | Resource Scope | Generate Supported | Import Supported | Requires manual setup |
 | ------------------------------------------ | -------------- | ------------------ | ---------------- | --------------------- |
-| dbtcloud_bigquery_connection               | Project        | ✅                 | ✅               | 🔒                    |
+| dbtcloud_bigquery_connection               | Project        | ✅                 | ✅               | 🔒                   |
 | dbtcloud_bigquery_credential               | Project        | ✅                 | ✅               |                       |
-| dbtcloud_connection                        | Project        | ✅                 | ✅               | 🔒*                   |
-| dbtcloud_databricks_credential             | Project        |                    |                  |                       |
+| dbtcloud_connection                        | Project        | ✅                 | ✅               | 🔒*                  |
+| dbtcloud_databricks_credential             | Project        | ✅*                | ✅               | 🔒                    |
 | dbtcloud_environment                       | Project        | ✅                 | ✅               |                       |
-| dbtcloud_environment_variable              | Project        | ✅                 | ✅               | 🔒*                   |
+| dbtcloud_environment_variable              | Project        | ✅                 | ✅               | 🔒*                  |
 | dbtcloud_environment_variable_job_override | Project        |                    |                  |                       |
 | dbtcloud_extended_attributes(*)            | Project        | ✅                 | ✅               |                       |
 | dbtcloud_fabric_connection                 | Project        |                    |                  |                       |
-| dbtcloud_fabric_credential                 | Project        |                    |                  | 🔒                    |
+| dbtcloud_fabric_credential                 | Project        |                    |                  | 🔒                   |
 | dbtcloud_group                             | Account        | ✅                 | ✅               |                       |
 | dbtcloud_job                               | Project        | ✅                 | ✅               |                       |
 | dbtcloud_license_map                       | Account        |                    |                  |                       |
 | dbtcloud_notification                      | Account        | ✅                 | ✅               |                       |
-| dbtcloud_postgres_credential               | Project        |                    |                  | 🔒*                   |
+| dbtcloud_postgres_credential               | Project        |                    |                  | 🔒*                  |
 | dbtcloud_project                           | Project        | ✅                 | ✅               |                       |
 | dbtcloud_project_artefacts                 | Project        |                    |                  |                       |
 | dbtcloud_project_connection                | Project        | ✅                 | ✅               |                       |
 | dbtcloud_project_repository                | Project        | ✅                 | ✅               |                       |
 | dbtcloud_repository                        | Project        | ✅                 | ✅               |                       |
-| dbtcloud_service_token                     | Account        |                    |                  | 🔒                    |
-| dbtcloud_snowflake_credential              | Project        | ✅                 | ✅               | 🔒                    |
+| dbtcloud_service_token                     | Account        | ✅                 | ✅               |                      |
+| dbtcloud_snowflake_credential              | Project        | ✅                 | ✅               | 🔒                   |
 | dbtcloud_user_groups                       | Account        | ✅                 | ✅               |                       |
 | dbtcloud_webhook                           | Account        | ✅                 | ✅               |                       |
 
@@ -66,6 +66,7 @@ Notes:
 
 - `dbtcloud_connection` is supported for Snowflake, Redshift, Postgres and Databricks, but not for Spark
 - `dbtcloud_extended_attributes` currently doesn't generate config for nested fields, only top level ones
+- `dbtcloud_databricks_credential` requires manually linking the `adapter_id` with the relevant `dbtcloud_connection`
 
 ## How to use the tool
 

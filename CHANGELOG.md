@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.0 (2024-06-28)
+
+- Add support for on_merge triggers for jobs and update testing
+- Limit the notifications to generate/import for external ones
+- Add support for importing/generating service tokens
+- Add support for importing/generating databricks credentials
+
 ## 0.5.0 (2024-04-11)
 
 - Allow importing jobs with job completion triggers
