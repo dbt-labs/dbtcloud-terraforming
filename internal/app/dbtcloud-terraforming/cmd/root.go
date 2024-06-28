@@ -8,7 +8,7 @@ import (
 )
 
 var log = logrus.New()
-var cfgFile, zoneID, hostURL, apiEmail, apiKey, apiToken, accountID, terraformInstallPath, terraformBinaryPath string
+var zoneID, hostURL, apiToken, accountID, terraformInstallPath, terraformBinaryPath string
 var listFilterProjects []int
 var verbose, useModernImportBlock bool
 var dbtCloudClient *dbtcloud.DbtCloudHTTPClient
