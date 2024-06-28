@@ -369,6 +369,10 @@ func (c *DbtCloudHTTPClient) GetSnowflakeCredentials(listProjects []int) []any {
 	return c.GetWarehouseCredentials(listProjects, "snowflake")
 }
 
+func (c *DbtCloudHTTPClient) GetDatabricksCredentials(listProjects []int) []any {
+	return c.GetWarehouseCredentials(listProjects, "databricks")
+}
+
 func (c *DbtCloudHTTPClient) GetBigQueryCredentials(listProjects []int) []any {
 	return c.GetWarehouseCredentials(listProjects, "bigquery")
 }
@@ -377,14 +381,27 @@ func (c *DbtCloudHTTPClient) GetWarehouseCredentials(listProjects []int, warehou
 	listCredentials := c.GetCredentials(listProjects)
 	warehouseCredentials := []any{}
 
+	listCredentialIDs := []int{}
+
 	for _, credential := range listCredentials {
 		credentialTyped := credential.(map[string]any)
 
 		// we only import the relevant ones
-		if credentialTyped["type"] != warehouse {
+		if credentialTyped["type"] != "adapter" && credentialTyped["type"] != warehouse {
 			continue
 		}
+
+		if credentialTyped["type"] == "adapter" && credentialTyped["adapter_version"] != fmt.Sprintf("%s_v0", warehouse) {
+			continue
+		}
+
+		// the API has some issues with offsets and we can get duplicates
+		if lo.Contains(listCredentialIDs, int(credentialTyped["id"].(float64))) {
+			continue
+		}
+
 		warehouseCredentials = append(warehouseCredentials, credential)
+		listCredentialIDs = append(listCredentialIDs, int(credentialTyped["id"].(float64)))
 	}
 
 	return warehouseCredentials
@@ -450,6 +467,25 @@ func (c *DbtCloudHTTPClient) GetWebhooks() []any {
 
 func (c *DbtCloudHTTPClient) GetNotifications() []any {
 	url := fmt.Sprintf("%s/v2/accounts/%s/notifications/", c.HostURL, c.AccountID)
+
+	return c.GetData(url)
+}
+
+func (c *DbtCloudHTTPClient) GetServiceTokens() []any {
+	url := fmt.Sprintf("%s/v3/accounts/%s/service-tokens/", c.HostURL, c.AccountID)
+
+	// the API returns the deactivated ones as well :-(
+	allServiceTokens := c.GetData(url)
+
+	activeServiceTokens := lo.Filter(allServiceTokens, func(serviceToken any, idx int) bool {
+		serviceTokenTyped := serviceToken.(map[string]any)
+		return serviceTokenTyped["state"].(float64) == 1
+	})
+	return activeServiceTokens
+}
+
+func (c *DbtCloudHTTPClient) GetServiceTokenPermissions(serviceTokenID int) []any {
+	url := fmt.Sprintf("%s/v3/accounts/%s/service-tokens/%d/permissions/", c.HostURL, c.AccountID, serviceTokenID)
 
 	return c.GetData(url)
 }

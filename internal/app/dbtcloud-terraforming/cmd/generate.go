@@ -149,6 +149,10 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 					if jobTyped["schedule_type"] == "custom_cron" {
 						jobTyped["schedule_cron"] = jobScheduleDate["cron"].(string)
 					}
+					if jobTyped["schedule_type"] == "interval_cron" {
+						jobTyped["schedule_type"] = "custom_cron"
+						jobTyped["schedule_cron"] = jobScheduleDate["cron"].(string)
+					}
 					if jobTyped["schedule_type"] == "days_of_week" {
 						jobTyped["schedule_days"] = jobScheduleDate["days"]
 
@@ -166,6 +170,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 						"github_webhook":       jobTriggers["github_webhook"].(bool),
 						"git_provider_webhook": jobTriggers["git_provider_webhook"].(bool),
 						"schedule":             jobTriggers["schedule"].(bool),
+						"on_merge":             jobTriggers["on_merge"].(bool),
 					}
 
 					jobTyped["triggers"] = triggers
@@ -379,6 +384,32 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 
 				resourceCount = len(jsonStructData)
 
+			case "dbtcloud_databricks_credential":
+				listCredentials := dbtCloudClient.GetDatabricksCredentials(listFilterProjects)
+
+				for _, credential := range listCredentials {
+					credentialTyped := credential.(map[string]any)
+
+					projectID := credentialTyped["project_id"].(float64)
+					credentialTyped["adapter_type"] = "databricks"
+					credentialTyped["token"] = "---TBD---"
+
+					// it is not easy to get back the schema for "adapter" type connections
+					// so for now, it stays as TBD
+					credentialTyped["schema"] = "---TBD---"
+
+					if linkResource("dbtcloud_project") {
+						credentialTyped["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%0.f.id", projectID)
+					}
+
+					if linkResource("dbtcloud_connection") {
+						credentialTyped["adapter_id"] = "dbtcloud_connection.terraform_managed_resource_CONNECTION_ID_TBD.adapter_id"
+					}
+					jsonStructData = append(jsonStructData, credentialTyped)
+				}
+
+				resourceCount = len(jsonStructData)
+
 			case "dbtcloud_bigquery_credential":
 				listCredentials := dbtCloudClient.GetBigQueryCredentials(listFilterProjects)
 
@@ -418,8 +449,6 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 
 					// we add the secure fields
 					connectionTyped["private_key"] = "---TBD---"
-					connectionTyped["application_id"] = "---TBD if using OAuth, otherwise delete---"
-					connectionTyped["private_key"] = "---TBD if using OAuth, otherwise delete---"
 
 					if linkResource("dbtcloud_project") {
 						connectionTyped["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%0.f.id", projectID)
@@ -609,8 +638,13 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 				for _, notification := range listNotifications {
 					notificationTyped := notification.(map[string]any)
 
-					notificationTyped["notification_type"] = notificationTyped["type"].(float64)
+					notificationTyped["notification_type"] = notificationTyped["type"]
 					notificationTyped["state"] = nil
+
+					if notificationTyped["notification_type"].(float64) == 4 && notificationTyped["external_email"] == nil {
+						// for some reason there are external notifications without an email
+						continue
+					}
 
 					if linkResource("dbtcloud_job") {
 						listOns := []string{"on_cancel", "on_failure", "on_success"}
@@ -631,6 +665,34 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 					}
 
 					jsonStructData = append(jsonStructData, notificationTyped)
+				}
+				resourceCount = len(jsonStructData)
+
+			case "dbtcloud_service_token":
+
+				listServiceTokens := dbtCloudClient.GetServiceTokens()
+				for _, serviceToken := range listServiceTokens {
+
+					serviceTokenTyped := serviceToken.(map[string]any)
+					serviceTokenTyped["uid"] = nil
+					serviceTokenID := int(serviceTokenTyped["id"].(float64))
+
+					permissions := dbtCloudClient.GetServiceTokenPermissions(serviceTokenID)
+
+					if linkResource("dbtcloud_project") {
+						for i, permissionsSet := range permissions {
+							permissionsSetTyped := permissionsSet.(map[string]any)
+							if permissionsSetTyped["project_id"] != nil {
+								projectID := permissionsSetTyped["project_id"].(float64)
+								projectResources := fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%.0f.id", projectID)
+								permissions[i].(map[string]any)["project_id"] = projectResources
+							}
+						}
+					}
+
+					serviceTokenTyped["service_token_permissions"] = permissions
+
+					jsonStructData = append(jsonStructData, serviceTokenTyped)
 				}
 				resourceCount = len(jsonStructData)
 

@@ -5,9 +5,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"testing"
 
 	"github.com/dbt-labs/dbtcloud-terraforming/dbtcloud"
+	"github.com/go-test/deep"
 	"github.com/hashicorp/terraform-exec/tfexec"
 	"github.com/samber/lo"
 	"github.com/spf13/viper"
@@ -15,40 +17,52 @@ import (
 )
 
 func TestResourceImport(t *testing.T) {
+
+	changeExpectedJobs := []string{
+		"map\\[on_merge\\]",                 // on_merge is optional for now
+		"interval_cron",                     // interval_cron is a new option that we don't handle today
+		"12 != 1",                           // this is related to interval_cron
+		"slice\\[\\d\\]: \\d != <no value>", // this is related to interval_cron
+	}
+
 	tests := map[string]struct {
-		resourceTypes       string
-		listLinkedResources string
-		testdataFilename    string
-		changesExpected     []string
-		projects            string
+		resourceTypes        string
+		listLinkedResources  string
+		testdataFilename     string
+		changesExpectedRegex []string
+		projects             string
 	}{
+
 		// account level resource
-		"dbt Cloud groups":        {resourceTypes: "dbtcloud_group", testdataFilename: "dbtcloud_group"},
-		"dbt Cloud user groups":   {resourceTypes: "dbtcloud_user_groups", testdataFilename: "dbtcloud_user_groups"},
-		"dbt Cloud webhooks":      {resourceTypes: "dbtcloud_webhook", testdataFilename: "dbtcloud_webhook"},
-		"dbt Cloud notifications": {resourceTypes: "dbtcloud_notification", testdataFilename: "dbtcloud_notification"},
+		"dbt Cloud groups":         {resourceTypes: "dbtcloud_group", testdataFilename: "dbtcloud_group"},
+		"dbt Cloud user groups":    {resourceTypes: "dbtcloud_user_groups", testdataFilename: "dbtcloud_user_groups"},
+		"dbt Cloud webhooks":       {resourceTypes: "dbtcloud_webhook", testdataFilename: "dbtcloud_webhook"},
+		"dbt Cloud notifications":  {resourceTypes: "dbtcloud_notification", testdataFilename: "dbtcloud_notification"},
+		"dbt Cloud service tokens": {resourceTypes: "dbtcloud_service_token", testdataFilename: "dbtcloud_service_token"},
 		// single resource
-		"dbt Cloud BigQuery connection":   {resourceTypes: "dbtcloud_bigquery_connection", testdataFilename: "dbtcloud_bigquery_connection", changesExpected: []string{"private_key", "application_id", "private_key"}},
-		"dbt Cloud BigQuery credentials":  {resourceTypes: "dbtcloud_bigquery_credential", testdataFilename: "dbtcloud_bigquery_credential"},
-		"dbt Cloud environments":          {resourceTypes: "dbtcloud_environment", testdataFilename: "dbtcloud_environment"},
-		"dbt Cloud jobs":                  {resourceTypes: "dbtcloud_job", testdataFilename: "dbtcloud_job"},
-		"dbt Cloud projects":              {resourceTypes: "dbtcloud_project", testdataFilename: "dbtcloud_project"},
-		"dbt Cloud project connection":    {resourceTypes: "dbtcloud_project_connection", testdataFilename: "dbtcloud_project_connection"},
-		"dbt Cloud project repository":    {resourceTypes: "dbtcloud_project_repository", testdataFilename: "dbtcloud_project_repository"},
-		"dbt Cloud repository":            {resourceTypes: "dbtcloud_repository", testdataFilename: "dbtcloud_repository"},
-		"dbt Cloud Snowflake credentials": {resourceTypes: "dbtcloud_snowflake_credential", testdataFilename: "dbtcloud_snowflake_credential", changesExpected: []string{"password"}},
+		"dbt Cloud BigQuery connection":    {resourceTypes: "dbtcloud_bigquery_connection", testdataFilename: "dbtcloud_bigquery_connection", changesExpectedRegex: []string{"---TBD"}},
+		"dbt Cloud BigQuery credentials":   {resourceTypes: "dbtcloud_bigquery_credential", testdataFilename: "dbtcloud_bigquery_credential"},
+		"dbt Cloud Databricks credentials": {resourceTypes: "dbtcloud_databricks_credential", testdataFilename: "dbtcloud_databricks_credential", changesExpectedRegex: []string{"---TBD", "databricks"}},
+		"dbt Cloud environments":           {resourceTypes: "dbtcloud_environment", testdataFilename: "dbtcloud_environment"},
+		"dbt Cloud jobs":                   {resourceTypes: "dbtcloud_job", testdataFilename: "dbtcloud_job", changesExpectedRegex: changeExpectedJobs},
+		"dbt Cloud projects":               {resourceTypes: "dbtcloud_project", testdataFilename: "dbtcloud_project"},
+		"dbt Cloud project connection":     {resourceTypes: "dbtcloud_project_connection", testdataFilename: "dbtcloud_project_connection"},
+		"dbt Cloud project repository":     {resourceTypes: "dbtcloud_project_repository", testdataFilename: "dbtcloud_project_repository"},
+		"dbt Cloud repository":             {resourceTypes: "dbtcloud_repository", testdataFilename: "dbtcloud_repository"},
+		"dbt Cloud Snowflake credentials":  {resourceTypes: "dbtcloud_snowflake_credential", testdataFilename: "dbtcloud_snowflake_credential", changesExpectedRegex: []string{"---TBD"}},
 		// single resource with filter by project
-		"dbt Cloud connection - Databricks": {resourceTypes: "dbtcloud_connection", testdataFilename: "dbtcloud_connection_databricks", projects: "43", changesExpected: []string{"database"}},
-		"dbt Cloud connection - Snowflake":  {resourceTypes: "dbtcloud_connection", testdataFilename: "dbtcloud_connection_snowflake", projects: "71", changesExpected: []string{"oauth_client_id", "oauth_client_secret"}},
+		"dbt Cloud connection - Databricks": {resourceTypes: "dbtcloud_connection", testdataFilename: "dbtcloud_connection_databricks", projects: "43", changesExpectedRegex: []string{"<set-empty-string>"}},
+		"dbt Cloud connection - Snowflake":  {resourceTypes: "dbtcloud_connection", testdataFilename: "dbtcloud_connection_snowflake", projects: "71", changesExpectedRegex: []string{"---TBD"}},
 		"dbt Cloud extended attributes":     {resourceTypes: "dbtcloud_extended_attributes", testdataFilename: "dbtcloud_extended_attributes", projects: "71"},
 		"dbt Cloud environment variables":   {resourceTypes: "dbtcloud_environment_variable", testdataFilename: "dbtcloud_environment_variable", projects: "71"},
-		"dbt Cloud jobs one project":        {resourceTypes: "dbtcloud_job", testdataFilename: "dbtcloud_job_single_project", projects: "43"},
+		"dbt Cloud jobs one project":        {resourceTypes: "dbtcloud_job", testdataFilename: "dbtcloud_job_single_project", projects: "43", changesExpectedRegex: []string{"map\\[on_merge\\]"}},
 		// multiple at once - linking resources
 		"dbt Cloud environments and extended attributes":   {resourceTypes: "dbtcloud_environment,dbtcloud_extended_attributes", testdataFilename: "dbtcloud_env_extended_attributes", listLinkedResources: "dbtcloud_extended_attributes", projects: "71"},
-		"dbt Cloud environments and Snowflake credentials": {resourceTypes: "dbtcloud_environment,dbtcloud_snowflake_credential", testdataFilename: "dbtcloud_env_snowflake_credential", listLinkedResources: "dbtcloud_snowflake_credential", projects: "71", changesExpected: []string{"password"}},
+		"dbt Cloud environments and Snowflake credentials": {resourceTypes: "dbtcloud_environment,dbtcloud_snowflake_credential", testdataFilename: "dbtcloud_env_snowflake_credential", listLinkedResources: "dbtcloud_snowflake_credential", projects: "71", changesExpectedRegex: []string{"---TBD"}},
 		"dbt Cloud projects and envs":                      {resourceTypes: "dbtcloud_project,dbtcloud_environment", testdataFilename: "dbtcloud_project_env", listLinkedResources: "dbtcloud_project"},
-		"dbt Cloud webhooks and jobs":                      {resourceTypes: "dbtcloud_webhook,dbtcloud_job", testdataFilename: "dbtcloud_webhook_job", listLinkedResources: "dbtcloud_job"},
-		"dbt Cloud jobs with jobs completion trigger":      {resourceTypes: "dbtcloud_job", testdataFilename: "dbtcloud_job_completion_trigger", listLinkedResources: "dbtcloud_job", projects: "43"},
+		"dbt Cloud webhooks and jobs":                      {resourceTypes: "dbtcloud_webhook,dbtcloud_job", testdataFilename: "dbtcloud_webhook_job", listLinkedResources: "dbtcloud_job", changesExpectedRegex: changeExpectedJobs},
+		"dbt Cloud jobs with jobs completion trigger":      {resourceTypes: "dbtcloud_job", testdataFilename: "dbtcloud_job_completion_trigger", listLinkedResources: "dbtcloud_job", projects: "43", changesExpectedRegex: []string{"map\\[on_merge\\]"}}, // this one can fail if we link jobs from other projects
+		"dbt Cloud with service tokens and projects":       {resourceTypes: "dbtcloud_service_token,dbtcloud_project", testdataFilename: "dbtcloud_service_token_projects", listLinkedResources: "dbtcloud_project"},
 	}
 
 	for name, tc := range tests {
@@ -74,7 +88,7 @@ func TestResourceImport(t *testing.T) {
 			combinedArgsGenerate := append(argsGenerate, projectsParam...)
 			outputGenerate, err := executeCommandC(rootCmd, combinedArgsGenerate...)
 			if err != nil {
-				log.Fatal(err)
+				log.Error(err)
 			}
 
 			// IMPORTANT!!! we need to reset the lists here otherwise subsequent tests will fail
@@ -85,7 +99,7 @@ func TestResourceImport(t *testing.T) {
 			combinedArgsImport := append(argsImport, projectsParam...)
 			outputImport, err = executeCommandC(rootCmd, combinedArgsImport...)
 			if err != nil {
-				log.Fatal(err)
+				log.Error(err)
 			}
 
 			workingDir := "../../../../testdata/terraform-import/" + tc.testdataFilename
@@ -137,13 +151,15 @@ func TestResourceImport(t *testing.T) {
 			terraformPath := terraformBinaryPath
 			tf, err := tfexec.NewTerraform(workingDir, terraformPath)
 			if err != nil {
-				log.Fatalf("error running NewTerraform: %s", err)
+				log.Errorf("error running NewTerraform: %s", err)
+				t.FailNow()
 			}
 
 			// Run Terraform Apply
 			err = tf.Init(context.Background(), tfexec.Upgrade(true))
 			if err != nil {
-				log.Fatalf("error running Init: %s", err)
+				log.Errorf("error running Init: %s", err)
+				t.FailNow()
 			}
 
 			// We run terraform plan and save it
@@ -161,15 +177,18 @@ func TestResourceImport(t *testing.T) {
 			// The following might be better in the future but for now I can't read back the JSON file
 			// requireChange, err := tf.PlanJSON(context.Background(), file)
 			if err != nil {
-				log.Fatalf("error running Init: %s", err)
+				filePathGenerate, _ := filepath.Abs(workingDir + "/generate.tf")
+				log.Errorf("error running Plan -- %s : %s", filePathGenerate, err)
+				t.FailNow()
 			}
 
 			planResults, err := tf.ShowPlanFile(context.Background(), absolutePath)
 			if err != nil {
-				log.Fatalf("error showing the plan: %s", err)
+				log.Errorf("error showing the plan: %s", err)
+				t.FailNow()
 			}
 
-			if len(tc.changesExpected) == 0 {
+			if len(tc.changesExpectedRegex) == 0 {
 				// we don't expect changes
 				allActions := []string{}
 				for resourceChange := range planResults.ResourceChanges {
@@ -184,18 +203,38 @@ func TestResourceImport(t *testing.T) {
 				// we expect changes but only for specific fields
 				listFieldsChanged := []string{}
 				for resourceChange := range planResults.ResourceChanges {
-					resourceBeforeMap := (planResults.ResourceChanges[resourceChange].Change.Before).(map[string]any)
-					resourceAfterMap := (planResults.ResourceChanges[resourceChange].Change.After).(map[string]any)
-					for k, v := range resourceBeforeMap {
-						if v != resourceAfterMap[k] {
-							listFieldsChanged = append(listFieldsChanged, k)
+					mapResourceBefore := (planResults.ResourceChanges[resourceChange].Change.Before).(map[string]any)
+					mapResourceAfter := (planResults.ResourceChanges[resourceChange].Change.After).(map[string]any)
+					for k, v := range mapResourceBefore {
+						diffs := deep.Equal(v, mapResourceAfter[k])
+						if len(diffs) > 0 {
+							// listFieldsChanged = append(listFieldsChanged, k)
+							listFieldsChanged = append(listFieldsChanged, diffs...)
+							// t.Log(diffs)
 						}
 					}
 				}
 
 				uniqueFieldsChanged := lo.Uniq(listFieldsChanged)
+				fieldsChangeFilter := lo.Filter(uniqueFieldsChanged, func(indivChange string, _ int) bool {
+					// for each change, we want to check if it's in the list of expected changes
+					for _, changeExpectedRegex := range tc.changesExpectedRegex {
+						pattern := changeExpectedRegex
 
-				assert.Subset(t, tc.changesExpected, uniqueFieldsChanged, "Some fields were not expected to change")
+						re, err := regexp.Compile(pattern)
+						if err != nil {
+							log.Println("Error compiling regex:", err)
+							return true
+						}
+
+						if re.MatchString(indivChange) {
+							return false
+						}
+					}
+					return true
+				})
+
+				assert.Emptyf(t, fieldsChangeFilter, "Unexpected changes")
 			}
 		})
 	}

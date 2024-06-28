@@ -14,22 +14,24 @@ import (
 // resourceImportStringFormats contains a mapping of the resource type to the
 // composite ID that is compatible with performing an import.
 var resourceImportStringFormats = map[string]string{
-	"dbtcloud_project":              ":id",
-	"dbtcloud_project_connection":   ":id::connection_id",
-	"dbtcloud_repository":           ":project_id::id",
-	"dbtcloud_project_repository":   ":id::repository_id",
-	"dbtcloud_job":                  ":id",
-	"dbtcloud_environment":          ":project_id::id",
-	"dbtcloud_environment_variable": ":project_id::name",
-	"dbtcloud_group":                ":id",
-	"dbtcloud_snowflake_credential": ":project_id::id",
-	"dbtcloud_bigquery_credential":  ":project_id::id",
-	"dbtcloud_bigquery_connection":  ":project_id::id",
-	"dbtcloud_connection":           ":project_id::id",
-	"dbtcloud_extended_attributes":  ":project_id::id",
-	"dbtcloud_user_groups":          ":user_id",
-	"dbtcloud_webhook":              ":id",
-	"dbtcloud_notification":         ":id",
+	"dbtcloud_project":               ":id",
+	"dbtcloud_project_connection":    ":id::connection_id",
+	"dbtcloud_repository":            ":project_id::id",
+	"dbtcloud_project_repository":    ":id::repository_id",
+	"dbtcloud_job":                   ":id",
+	"dbtcloud_environment":           ":project_id::id",
+	"dbtcloud_environment_variable":  ":project_id::name",
+	"dbtcloud_group":                 ":id",
+	"dbtcloud_snowflake_credential":  ":project_id::id",
+	"dbtcloud_databricks_credential": ":project_id::id",
+	"dbtcloud_bigquery_credential":   ":project_id::id",
+	"dbtcloud_bigquery_connection":   ":project_id::id",
+	"dbtcloud_connection":            ":project_id::id",
+	"dbtcloud_extended_attributes":   ":project_id::id",
+	"dbtcloud_user_groups":           ":user_id",
+	"dbtcloud_webhook":               ":id",
+	"dbtcloud_notification":          ":id",
+	"dbtcloud_service_token":         ":id",
 }
 
 func init() {
@@ -115,6 +117,9 @@ func runImport() func(cmd *cobra.Command, args []string) {
 			case "dbtcloud_snowflake_credential":
 				jsonStructData = dbtCloudClient.GetSnowflakeCredentials(listFilterProjects)
 
+			case "dbtcloud_databricks_credential":
+				jsonStructData = dbtCloudClient.GetDatabricksCredentials(listFilterProjects)
+
 			case "dbtcloud_bigquery_credential":
 				jsonStructData = dbtCloudClient.GetBigQueryCredentials(listFilterProjects)
 
@@ -137,7 +142,14 @@ func runImport() func(cmd *cobra.Command, args []string) {
 				jsonStructData = dbtCloudClient.GetWebhooks()
 
 			case "dbtcloud_notification":
-				jsonStructData = dbtCloudClient.GetNotifications()
+				allNotifications := dbtCloudClient.GetNotifications()
+				jsonStructData = lo.Filter(allNotifications, func(notif any, idx int) bool {
+					notifTyped := notif.(map[string]any)
+					return !(notifTyped["type"].(float64) == 4 && notifTyped["external_email"] == nil)
+
+				})
+			case "dbtcloud_service_token":
+				jsonStructData = dbtCloudClient.GetServiceTokens()
 
 			default:
 				fmt.Fprintf(cmd.OutOrStderr(), "%q is not yet supported for state import", resourceType)
