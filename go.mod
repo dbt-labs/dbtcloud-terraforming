@@ -4,6 +4,7 @@ go 1.21.0
 
 require (
 	github.com/MakeNowJust/heredoc/v2 v2.0.1
+	github.com/go-test/deep v1.0.3
 	github.com/hashicorp/go-version v1.6.0
 	github.com/hashicorp/hc-install v0.5.2
 	github.com/hashicorp/hcl/v2 v2.17.0
