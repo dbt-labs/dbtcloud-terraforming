@@ -647,7 +647,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 					}
 
 					if linkResource("dbtcloud_job") {
-						listOns := []string{"on_cancel", "on_failure", "on_success"}
+						listOns := []string{"on_cancel", "on_failure", "on_success", "on_warning"}
 
 						for _, notifHook := range listOns {
 
