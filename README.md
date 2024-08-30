@@ -175,6 +175,28 @@ dbtcloud-terraforming generate --resource-types dbtcloud_project,dbtcloud_enviro
 
 This can be especially useful if you want to replicate an existing project. To do so, you can generate all the config *without* importing it. You could change the name of a project, and after running a `terraform apply` all the objects will be newly created, replicating your existing config in another project.
 
+## Loading all projects and generating TF files
+
+In the examples folder, there is a script that can be used to load all the projects and generate the Terraform files for them.
+This can be very helpful to setup a new Terraform configuration for all the projects in your dbt Cloud account.
+
+To use it, you can run the following:
+
+1. Create a new git repository
+2. Inside the repo create:
+   1. a `main.tf` file with the dbt Cloud provider setup
+   2. a `get_all_projects.py` file with the content from `examples/get_all_projects.py`
+3. Run the following: 
+```sh
+export DBT_CLOUD_TOKEN=<token>
+export DBT_CLOUD_ACCOUNT_ID=123
+export DBT_CLOUD_HOST_URL="https://emea.dbt.com/api"
+
+python get_all_projects.py
+```
+
+This will generate a TF file per project. 
+
 ## Contributing
 
 Currently, the best way to contribute is to raise bugs/feature requests as GitHub issues.
