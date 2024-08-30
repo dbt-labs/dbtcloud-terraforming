@@ -335,3 +335,11 @@ func regexFixExtendedAttributes(inp string) string {
 
 	return re.ReplaceAllStringFunc(inp, replacementFunc)
 }
+
+func getBool(value any) bool {
+	// Handles cases where the value is nil
+	if value == nil {
+		return false
+	}
+	return value.(bool)
+}

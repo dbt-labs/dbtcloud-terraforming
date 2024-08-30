@@ -167,10 +167,10 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 					jobTriggers := jobTyped["triggers"].(map[string]any)
 
 					triggers := map[string]any{
-						"github_webhook":       jobTriggers["github_webhook"].(bool),
-						"git_provider_webhook": jobTriggers["git_provider_webhook"].(bool),
-						"schedule":             jobTriggers["schedule"].(bool),
-						"on_merge":             jobTriggers["on_merge"].(bool),
+						"github_webhook":       getBool(jobTriggers["github_webhook"]),
+						"git_provider_webhook": getBool(jobTriggers["git_provider_webhook"]),
+						"schedule":             getBool(jobTriggers["schedule"]),
+						"on_merge":             getBool(jobTriggers["on_merge"]),
 					}
 
 					jobTyped["triggers"] = triggers
