@@ -109,12 +109,12 @@ func (c *DbtCloudHTTPClient) Do(req *http.Request) (*http.Response, error) {
 func (c *DbtCloudHTTPClient) GetEndpoint(url string) ([]byte, error) {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		log.Fatalf("Error creating a new request: %v", err)
+		return nil, fmt.Errorf("error creating a new request: %v", err)
 	}
 
 	resp, err := c.Do(req)
 	if err != nil {
-		log.Fatalf("Error fetching URL %v: %v", url, err)
+		return nil, fmt.Errorf("error fetching URL %v: %v", url, err)
 	}
 	// Ensure the response body is closed at the end.
 	defer resp.Body.Close()
@@ -122,31 +122,31 @@ func (c *DbtCloudHTTPClient) GetEndpoint(url string) ([]byte, error) {
 	// Read the response body
 	jsonPayload, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Fatalf("Error reading body: %v", err)
+		return nil, fmt.Errorf("error reading body: %v", err)
 	}
 
 	// 400 and more are errors, either on the client side or the server side
 	if resp.StatusCode >= 400 {
-		log.WithFields(logrus.Fields{"status": resp.Status, "body": string(jsonPayload)}).Fatalf("Error fetching URL %v", url)
+		return nil, fmt.Errorf("error fetching URL %v: %v -- body: %s", url, resp.Status, string(jsonPayload))
 	}
 
-	return jsonPayload, err
+	return jsonPayload, nil
 }
 
-func (c *DbtCloudHTTPClient) GetSingleData(url string) any {
+func (c *DbtCloudHTTPClient) GetSingleData(url string) (any, error) {
 
 	jsonPayload, err := c.GetEndpoint(url)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 	var response SingleResponse
 
 	err = json.Unmarshal(jsonPayload, &response)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 
-	return response.Data
+	return response.Data, nil
 }
 
 func (c *DbtCloudHTTPClient) GetData(url string) []any {
@@ -233,7 +233,7 @@ func (c *DbtCloudHTTPClient) GetProjects(listProjects []int) []any {
 		dataTyped := data.(map[string]any)
 		projectID := dataTyped["id"].(float64)
 
-		if len(listProjects) > 0 && lo.Contains(listProjects, int(projectID)) == false {
+		if len(listProjects) > 0 && !lo.Contains(listProjects, int(projectID)) {
 			continue
 		}
 		filteredProjects = append(filteredProjects, data)
@@ -262,7 +262,7 @@ func filterByProject(allData []any, listProjects []int) []any {
 		dataTyped := data.(map[string]any)
 		projectID := dataTyped["project_id"].(float64)
 
-		if lo.Contains(listProjects, int(projectID)) == false {
+		if !lo.Contains(listProjects, int(projectID)) {
 			continue
 		}
 		filteredData = append(filteredData, data)
@@ -322,7 +322,7 @@ func (c *DbtCloudHTTPClient) GetConnections(listProjects []int, warehouses []str
 		projectTyped := project.(map[string]any)
 		projectID := int(projectTyped["id"].(float64))
 
-		if len(listProjects) > 0 && lo.Contains(listProjects, projectID) == false {
+		if len(listProjects) > 0 && !lo.Contains(listProjects, projectID) {
 			continue
 		}
 
@@ -346,7 +346,12 @@ func (c *DbtCloudHTTPClient) GetConnections(listProjects []int, warehouses []str
 		}
 
 		url := fmt.Sprintf("%s/v3/accounts/%s/projects/%d/connections/%0.f/", c.HostURL, c.AccountID, projectID, projectConnectionTyped["id"].(float64))
-		connection := c.GetSingleData(url)
+		connection, err := c.GetSingleData(url)
+		if err != nil {
+			log.Warn(err)
+			continue
+		}
+
 		connections = append(connections, connection)
 	}
 
@@ -447,7 +452,7 @@ func (c *DbtCloudHTTPClient) GetExtendedAttributes(listProjects []int) []any {
 		}
 		projectID := envTyped["project_id"].(float64)
 		url := fmt.Sprintf("%s/v3/accounts/%s/projects/%0.f/extended-attributes/%0.f/", c.HostURL, c.AccountID, projectID, extendedAttributesID)
-		extendedAttributes := c.GetSingleData(url)
+		extendedAttributes, _ := c.GetSingleData(url)
 		allExtendedAttributes = append(allExtendedAttributes, extendedAttributes)
 	}
 	return allExtendedAttributes
