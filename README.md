@@ -47,6 +47,7 @@ This tool can be used to load existing dbt Cloud configuration into Terraform. C
 | dbtcloud_extended_attributes(*)            | Project        | ✅                 | ✅               |                       |
 | dbtcloud_fabric_connection                 | Project        |                    |                  |                       |
 | dbtcloud_fabric_credential                 | Project        |                    |                  | 🔒                   |
+| dbtcloud_global_connection                 | Account        | ✅                 | ✅               | 🔒*                   |
 | dbtcloud_group                             | Account        | ✅                 | ✅               |                       |
 | dbtcloud_job                               | Project        | ✅                 | ✅               |                       |
 | dbtcloud_license_map                       | Account        |                    |                  |                       |
@@ -54,7 +55,7 @@ This tool can be used to load existing dbt Cloud configuration into Terraform. C
 | dbtcloud_postgres_credential               | Project        |                    |                  | 🔒*                  |
 | dbtcloud_project                           | Project        | ✅                 | ✅               |                       |
 | dbtcloud_project_artefacts (deprecated)    | Project        | ❌                 | ❌               |                       |
-| dbtcloud_project_connection                | Project        | ✅                 | ✅               |                       |
+| dbtcloud_project_connection (deprecated)   | Project        | ❌                 | ❌               |                       |
 | dbtcloud_project_repository                | Project        | ✅                 | ✅               |                       |
 | dbtcloud_repository                        | Project        | ✅                 | ✅               |                       |
 | dbtcloud_service_token                     | Account        | ✅                 | ✅               |                      |
@@ -64,7 +65,6 @@ This tool can be used to load existing dbt Cloud configuration into Terraform. C
 
 Notes:
 
-- `dbtcloud_connection` is supported for Snowflake, Redshift, Postgres and Databricks, but not for Spark
 - `dbtcloud_extended_attributes` currently doesn't generate config for nested fields, only top level ones
 - `dbtcloud_databricks_credential` requires manually linking the `adapter_id` with the relevant `dbtcloud_connection`
 
@@ -78,6 +78,8 @@ Download the executable for your platform [from the GitHUb releases page](https:
 You can then add it to your PATH and run it with `dbtcloud-terraforming` or run it based on its location (e.g. `./dbtcloud-terraforming`).
 
 To update to the latest version, you can head back to the release page and download and extract the executable again.
+
+Alternatively, you can use [`eget`](https://github.com/zyedidia/eget) to more easily download the relevant executable.
 
 #### MacOS and Linux
 

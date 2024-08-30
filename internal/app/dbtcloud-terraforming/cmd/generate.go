@@ -45,6 +45,10 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 			log.Fatal("you must define at least one --resource-types to generate the config")
 		}
 
+		if len(resourceTypes) == 1 && resourceTypes[0] == "all" {
+			resourceTypes = lo.Keys(resourceImportStringFormats)
+		}
+
 		listFilterProjects = viper.GetIntSlice("projects")
 
 		var execPath, workingDir string
@@ -109,23 +113,6 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 			case "dbtcloud_project":
 
 				jsonStructData = dbtCloudClient.GetProjects(listFilterProjects)
-				resourceCount = len(jsonStructData)
-
-			case "dbtcloud_project_connection":
-
-				listProjects := dbtCloudClient.GetProjects(listFilterProjects)
-
-				for _, project := range listProjects {
-					projectTyped := project.(map[string]any)
-					projectTyped["project_id"] = projectTyped["id"].(float64)
-					jsonStructData = append(jsonStructData, projectTyped)
-
-					if linkResource("dbtcloud_project") {
-						projectID := projectTyped["project_id"]
-						projectTyped["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%0.f.id", projectID)
-					}
-				}
-
 				resourceCount = len(jsonStructData)
 
 			case "dbtcloud_job":
@@ -230,17 +217,30 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 					if credentialID, ok := environmentsTyped["credentials_id"].(float64); ok {
 
 						environmentsTyped["credential_id"] = credentialID
-						if linkResource("dbtcloud_snowflake_credential") || linkResource("dbtcloud_bigquery_credential") {
+						if linkResource("dbtcloud_snowflake_credential") || linkResource("dbtcloud_bigquery_credential") || linkResource("dbtcloud_databricks_credential") {
 
-							credentials := environmentsTyped["credentials"].(map[string]any)
-							credentialsType := credentials["type"].(string)
+							credentials, credentialsOK := environmentsTyped["credentials"].(map[string]any)
 
-							if !lo.Contains([]string{"snowflake", "bigquery"}, credentialsType) {
-								panic("Only Snowflake and BigQuery credentials are supported for now. Please raise an issue in the repo if you would like to see other adapter supported")
+							if credentialsOK {
+								credentialsType := credentials["type"].(string)
+								adapterVersion := credentials["adapter_version"].(string)
+
+								if lo.Contains([]string{"snowflake", "bigquery"}, credentialsType) {
+									environmentsTyped["credential_id"] = fmt.Sprintf("dbtcloud_%s_credential.terraform_managed_resource_%0.f.credential_id", credentialsType, credentialID)
+								} else if adapterVersion != "databricks_v0" {
+									environmentsTyped["credential_id"] = fmt.Sprintf("dbtcloud_databricks_credential.terraform_managed_resource_%0.f.credential_id", credentialID)
+								} else {
+									environmentsTyped["credential_id"] = "---TBD---credential type not supported yet---"
+								}
+
+							} else {
+								environmentsTyped["credential_id"] = "---TBD---"
 							}
-
-							environmentsTyped["credential_id"] = fmt.Sprintf("dbtcloud_%s_credential.terraform_managed_resource_%0.f.credential_id", credentialsType, credentialID)
 						}
+					}
+					if linkResource("dbtcloud_global_connection") {
+						connectionID := environmentsTyped["connection_id"].(float64)
+						environmentsTyped["connection_id"] = fmt.Sprintf("dbtcloud_global_connection.terraform_managed_resource_%0.f.id", connectionID)
 					}
 
 					// handle the case when extended_attributes_id is not set
@@ -372,7 +372,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 					case "password":
 						credentialTyped["password"] = "---TBD---"
 					case "keypair":
-						credentialTyped["private_key"] = "!!!TBD!!!"
+						credentialTyped["private_key"] = "---TBD---"
 						credentialTyped["private_key_passphrase"] = "---TBD---"
 					}
 
@@ -696,6 +696,53 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 				}
 				resourceCount = len(jsonStructData)
 
+			case "dbtcloud_global_connection":
+
+				listConnections := dbtCloudClient.GetGlobalConnections()
+
+				for _, connection := range listConnections {
+					connectionTyped := connection.(map[string]any)
+					jsonStructData = append(jsonStructData, connectionTyped)
+
+					configSection := getAdapterFromAdapterVersion(connectionTyped["adapter_version"].(string))
+
+					configTyped := connectionTyped["config"].(map[string]any)
+					delete(configTyped, "adapter_id")
+
+					// handle the fields that don't come back from the API
+					_, exists := configTyped["oauth_client_id"]
+					if exists {
+						configTyped["oauth_client_id"] = "---TBD---"
+					}
+					_, exists = configTyped["oauth_client_secret"]
+					if exists {
+						configTyped["oauth_client_secret"] = "---TBD---"
+					}
+					_, exists = configTyped["private_key"]
+					if exists {
+						configTyped["private_key"] = "---TBD---"
+					}
+					_, exists = configTyped["application_id"]
+					if exists {
+						configTyped["application_id"] = "---TBD---"
+					}
+					_, exists = configTyped["application_secret"]
+					if exists {
+						configTyped["application_secret"] = "---TBD---"
+					}
+					// For BQ, to handle the renaming of the fields
+					gcpProjectID, exists := configTyped["project_id"]
+					if exists && configSection == "bigquery" {
+						configTyped["gcp_project_id"] = gcpProjectID
+						delete(configTyped, "project_id")
+					}
+
+					connectionTyped[configSection] = connectionTyped["config"]
+
+				}
+
+				resourceCount = len(jsonStructData)
+
 			default:
 				fmt.Fprintf(cmd.OutOrStderr(), "%q is not yet supported for automatic generation", resourceType)
 				return
@@ -752,6 +799,12 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 					}
 					if attrName == "account_id" && accountID != "" {
 						writeAttrLine(attrName, accountID, "", resource)
+						continue
+					}
+
+					// This is to handle Attributes in the Framework
+					if r.Block.Attributes[attrName].AttributeType == cty.NilType {
+						writeAttrLine(attrName, structData[attrName], "", resource)
 						continue
 					}
 

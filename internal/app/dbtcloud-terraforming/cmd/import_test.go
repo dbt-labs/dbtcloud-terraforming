@@ -34,11 +34,12 @@ func TestResourceImport(t *testing.T) {
 	}{
 
 		// account level resource
-		"dbt Cloud groups":         {resourceTypes: "dbtcloud_group", testdataFilename: "dbtcloud_group"},
-		"dbt Cloud user groups":    {resourceTypes: "dbtcloud_user_groups", testdataFilename: "dbtcloud_user_groups"},
-		"dbt Cloud webhooks":       {resourceTypes: "dbtcloud_webhook", testdataFilename: "dbtcloud_webhook"},
-		"dbt Cloud notifications":  {resourceTypes: "dbtcloud_notification", testdataFilename: "dbtcloud_notification"},
-		"dbt Cloud service tokens": {resourceTypes: "dbtcloud_service_token", testdataFilename: "dbtcloud_service_token"},
+		"dbt Cloud groups":             {resourceTypes: "dbtcloud_group", testdataFilename: "dbtcloud_group"},
+		"dbt Cloud user groups":        {resourceTypes: "dbtcloud_user_groups", testdataFilename: "dbtcloud_user_groups"},
+		"dbt Cloud webhooks":           {resourceTypes: "dbtcloud_webhook", testdataFilename: "dbtcloud_webhook"},
+		"dbt Cloud notifications":      {resourceTypes: "dbtcloud_notification", testdataFilename: "dbtcloud_notification"},
+		"dbt Cloud service tokens":     {resourceTypes: "dbtcloud_service_token", testdataFilename: "dbtcloud_service_token"},
+		"dbt Cloud global connections": {resourceTypes: "dbtcloud_global_connection", testdataFilename: "dbtcloud_global_connection"},
 		// single resource
 		"dbt Cloud BigQuery connection":    {resourceTypes: "dbtcloud_bigquery_connection", testdataFilename: "dbtcloud_bigquery_connection", changesExpectedRegex: []string{"---TBD"}},
 		"dbt Cloud BigQuery credentials":   {resourceTypes: "dbtcloud_bigquery_credential", testdataFilename: "dbtcloud_bigquery_credential"},
@@ -46,7 +47,6 @@ func TestResourceImport(t *testing.T) {
 		"dbt Cloud environments":           {resourceTypes: "dbtcloud_environment", testdataFilename: "dbtcloud_environment"},
 		"dbt Cloud jobs":                   {resourceTypes: "dbtcloud_job", testdataFilename: "dbtcloud_job", changesExpectedRegex: changeExpectedJobs},
 		"dbt Cloud projects":               {resourceTypes: "dbtcloud_project", testdataFilename: "dbtcloud_project"},
-		"dbt Cloud project connection":     {resourceTypes: "dbtcloud_project_connection", testdataFilename: "dbtcloud_project_connection"},
 		"dbt Cloud project repository":     {resourceTypes: "dbtcloud_project_repository", testdataFilename: "dbtcloud_project_repository"},
 		"dbt Cloud repository":             {resourceTypes: "dbtcloud_repository", testdataFilename: "dbtcloud_repository"},
 		"dbt Cloud Snowflake credentials":  {resourceTypes: "dbtcloud_snowflake_credential", testdataFilename: "dbtcloud_snowflake_credential", changesExpectedRegex: []string{"---TBD"}},

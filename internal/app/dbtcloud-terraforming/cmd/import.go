@@ -15,7 +15,6 @@ import (
 // composite ID that is compatible with performing an import.
 var resourceImportStringFormats = map[string]string{
 	"dbtcloud_project":               ":id",
-	"dbtcloud_project_connection":    ":id::connection_id",
 	"dbtcloud_repository":            ":project_id::id",
 	"dbtcloud_project_repository":    ":id::repository_id",
 	"dbtcloud_job":                   ":id",
@@ -32,6 +31,7 @@ var resourceImportStringFormats = map[string]string{
 	"dbtcloud_webhook":               ":id",
 	"dbtcloud_notification":          ":id",
 	"dbtcloud_service_token":         ":id",
+	"dbtcloud_global_connection":     ":id",
 }
 
 func init() {
@@ -64,9 +64,6 @@ func runImport() func(cmd *cobra.Command, args []string) {
 			switch resourceType {
 
 			case "dbtcloud_project":
-				jsonStructData = dbtCloudClient.GetProjects(listFilterProjects)
-
-			case "dbtcloud_project_connection":
 				jsonStructData = dbtCloudClient.GetProjects(listFilterProjects)
 
 			case "dbtcloud_project_repository":
@@ -150,6 +147,9 @@ func runImport() func(cmd *cobra.Command, args []string) {
 				})
 			case "dbtcloud_service_token":
 				jsonStructData = dbtCloudClient.GetServiceTokens()
+
+			case "dbtcloud_global_connection":
+				jsonStructData = dbtCloudClient.GetGlobalConnectionsSummary()
 
 			default:
 				fmt.Fprintf(cmd.OutOrStderr(), "%q is not yet supported for state import", resourceType)
