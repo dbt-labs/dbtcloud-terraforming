@@ -3,7 +3,7 @@
 ## 0.8.0 (2024-08-30)
 
 - Add `dbtcloud_global_connection` and the ability to link it to environments
-- Remove `dbtcloud_project_connection` now that connections are set at the
+- Remove `dbtcloud_project_connection` now that connections are set at the environment level
 
 ## 0.7.0
 
