@@ -494,3 +494,32 @@ func (c *DbtCloudHTTPClient) GetServiceTokenPermissions(serviceTokenID int) []an
 
 	return c.GetData(url)
 }
+
+func (c *DbtCloudHTTPClient) GetGlobalConnection(id int64) (any, error) {
+	url := fmt.Sprintf("%s/v3/accounts/%s/connections/%d/", c.HostURL, c.AccountID, id)
+
+	return c.GetSingleData(url)
+}
+
+func (c *DbtCloudHTTPClient) GetGlobalConnectionsSummary() []any {
+	url := fmt.Sprintf("%s/v3/accounts/%s/connections/", c.HostURL, c.AccountID)
+
+	return c.GetData(url)
+}
+
+func (c *DbtCloudHTTPClient) GetGlobalConnections() []any {
+
+	// this return just a summary though...
+	// so we need to loop through the results to get the details
+	allConnectionsSummary := c.GetGlobalConnectionsSummary()
+	allConnectionDetails := []any{}
+
+	for _, connectionSummary := range allConnectionsSummary {
+		connectionSummaryTyped := connectionSummary.(map[string]any)
+		connectionID := int(connectionSummaryTyped["id"].(float64))
+		connectionDetails, _ := c.GetGlobalConnection(int64(connectionID))
+		allConnectionDetails = append(allConnectionDetails, connectionDetails)
+	}
+
+	return allConnectionDetails
+}

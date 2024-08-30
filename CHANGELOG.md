@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.0 (2024-08-30)
+
+- Add `dbtcloud_global_connection` and the ability to link it to environments
+- Remove `dbtcloud_project_connection` now that connections are set at the
+
+## 0.7.0
+
+- Add import for notifications on warning for jobs
+
 ## 0.6.0 (2024-06-28)
 
 - Add support for on_merge triggers for jobs and update testing
