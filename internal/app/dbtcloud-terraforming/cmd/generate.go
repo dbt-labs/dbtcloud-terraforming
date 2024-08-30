@@ -832,7 +832,6 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 						fmt.Printf("object found. attrName %s\n", attrName)
 					default:
 						log.Debugf("attribute %q (attribute type of %q) has not been generated", attrName, ty.FriendlyName())
-						// log.Debugf("attribute %q (attribute type of --skipped--) has not been generated", attrName)
 					}
 				}
 
