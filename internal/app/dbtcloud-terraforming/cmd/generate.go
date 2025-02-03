@@ -165,6 +165,11 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 					if linkResource("dbtcloud_environment") {
 						environmentID := jobTyped["environment_id"].(float64)
 						jobTyped["environment_id"] = fmt.Sprintf("dbtcloud_environment.terraform_managed_resource_%0.f.environment_id", environmentID)
+
+						// handle the case when deferring_environment_id is not set
+						if deferringEnvironmentID, ok := jobTyped["deferring_environment_id"].(float64); ok {
+							jobTyped["deferring_environment_id"] = fmt.Sprintf("dbtcloud_environment.terraform_managed_resource_%0.f.environment_id", deferringEnvironmentID)
+						}
 					}
 					if linkResource("dbtcloud_project") {
 						projectID := jobTyped["project_id"].(float64)
