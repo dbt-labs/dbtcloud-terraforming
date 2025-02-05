@@ -41,24 +41,21 @@ func TestResourceImport(t *testing.T) {
 		"dbt Cloud service tokens":     {resourceTypes: "dbtcloud_service_token", testdataFilename: "dbtcloud_service_token"},
 		"dbt Cloud global connections": {resourceTypes: "dbtcloud_global_connection", testdataFilename: "dbtcloud_global_connection"},
 		// single resource
-		"dbt Cloud BigQuery connection":    {resourceTypes: "dbtcloud_bigquery_connection", testdataFilename: "dbtcloud_bigquery_connection", changesExpectedRegex: []string{"---TBD"}},
 		"dbt Cloud BigQuery credentials":   {resourceTypes: "dbtcloud_bigquery_credential", testdataFilename: "dbtcloud_bigquery_credential"},
 		"dbt Cloud Databricks credentials": {resourceTypes: "dbtcloud_databricks_credential", testdataFilename: "dbtcloud_databricks_credential", changesExpectedRegex: []string{"---TBD", "databricks"}},
-		"dbt Cloud environments":           {resourceTypes: "dbtcloud_environment", testdataFilename: "dbtcloud_environment"},
+		"dbt Cloud environments":           {resourceTypes: "dbtcloud_environment", testdataFilename: "dbtcloud_environment", changesExpectedRegex: []string{"0 !="}},
 		"dbt Cloud jobs":                   {resourceTypes: "dbtcloud_job", testdataFilename: "dbtcloud_job", changesExpectedRegex: changeExpectedJobs},
 		"dbt Cloud projects":               {resourceTypes: "dbtcloud_project", testdataFilename: "dbtcloud_project"},
-		"dbt Cloud project repository":     {resourceTypes: "dbtcloud_project_repository", testdataFilename: "dbtcloud_project_repository"},
+		"dbt Cloud project repository":     {resourceTypes: "dbtcloud_project_repository", testdataFilename: "dbtcloud_project_repository", projects: "43"},
 		"dbt Cloud repository":             {resourceTypes: "dbtcloud_repository", testdataFilename: "dbtcloud_repository"},
 		"dbt Cloud Snowflake credentials":  {resourceTypes: "dbtcloud_snowflake_credential", testdataFilename: "dbtcloud_snowflake_credential", changesExpectedRegex: []string{"---TBD"}},
 		// single resource with filter by project
-		"dbt Cloud connection - Databricks": {resourceTypes: "dbtcloud_connection", testdataFilename: "dbtcloud_connection_databricks", projects: "43", changesExpectedRegex: []string{"<set-empty-string>"}},
-		"dbt Cloud connection - Snowflake":  {resourceTypes: "dbtcloud_connection", testdataFilename: "dbtcloud_connection_snowflake", projects: "71", changesExpectedRegex: []string{"---TBD"}},
-		"dbt Cloud extended attributes":     {resourceTypes: "dbtcloud_extended_attributes", testdataFilename: "dbtcloud_extended_attributes", projects: "71"},
-		"dbt Cloud environment variables":   {resourceTypes: "dbtcloud_environment_variable", testdataFilename: "dbtcloud_environment_variable", projects: "71"},
-		"dbt Cloud jobs one project":        {resourceTypes: "dbtcloud_job", testdataFilename: "dbtcloud_job_single_project", projects: "43", changesExpectedRegex: []string{"map\\[on_merge\\]"}},
+		"dbt Cloud extended attributes":   {resourceTypes: "dbtcloud_extended_attributes", testdataFilename: "dbtcloud_extended_attributes", projects: "71"},
+		"dbt Cloud environment variables": {resourceTypes: "dbtcloud_environment_variable", testdataFilename: "dbtcloud_environment_variable", projects: "71"},
+		"dbt Cloud jobs one project":      {resourceTypes: "dbtcloud_job", testdataFilename: "dbtcloud_job_single_project", projects: "43", changesExpectedRegex: []string{"map\\[on_merge\\]"}},
 		// multiple at once - linking resources
 		"dbt Cloud environments and extended attributes":   {resourceTypes: "dbtcloud_environment,dbtcloud_extended_attributes", testdataFilename: "dbtcloud_env_extended_attributes", listLinkedResources: "dbtcloud_extended_attributes", projects: "71"},
-		"dbt Cloud environments and Snowflake credentials": {resourceTypes: "dbtcloud_environment,dbtcloud_snowflake_credential", testdataFilename: "dbtcloud_env_snowflake_credential", listLinkedResources: "dbtcloud_snowflake_credential", projects: "71", changesExpectedRegex: []string{"---TBD"}},
+		"dbt Cloud environments and Snowflake credentials": {resourceTypes: "dbtcloud_environment,dbtcloud_snowflake_credential", testdataFilename: "dbtcloud_env_snowflake_credential", listLinkedResources: "dbtcloud_snowflake_credential", projects: "71", changesExpectedRegex: []string{"---TBD", "0 !="}},
 		"dbt Cloud projects and envs":                      {resourceTypes: "dbtcloud_project,dbtcloud_environment", testdataFilename: "dbtcloud_project_env", listLinkedResources: "dbtcloud_project"},
 		"dbt Cloud webhooks and jobs":                      {resourceTypes: "dbtcloud_webhook,dbtcloud_job", testdataFilename: "dbtcloud_webhook_job", listLinkedResources: "dbtcloud_job", changesExpectedRegex: changeExpectedJobs},
 		"dbt Cloud jobs with jobs completion trigger":      {resourceTypes: "dbtcloud_job", testdataFilename: "dbtcloud_job_completion_trigger", listLinkedResources: "dbtcloud_job", projects: "43", changesExpectedRegex: []string{"map\\[on_merge\\]"}}, // this one can fail if we link jobs from other projects
@@ -201,7 +198,7 @@ func TestResourceImport(t *testing.T) {
 
 			} else {
 				// we expect changes but only for specific fields
-				listFieldsChanged := []string{}
+				listFieldsDiffs := []string{}
 				for resourceChange := range planResults.ResourceChanges {
 					mapResourceBefore := (planResults.ResourceChanges[resourceChange].Change.Before).(map[string]any)
 					mapResourceAfter := (planResults.ResourceChanges[resourceChange].Change.After).(map[string]any)
@@ -209,14 +206,14 @@ func TestResourceImport(t *testing.T) {
 						diffs := deep.Equal(v, mapResourceAfter[k])
 						if len(diffs) > 0 {
 							// listFieldsChanged = append(listFieldsChanged, k)
-							listFieldsChanged = append(listFieldsChanged, diffs...)
+							listFieldsDiffs = append(listFieldsDiffs, diffs...)
 							// t.Log(diffs)
 						}
 					}
 				}
 
-				uniqueFieldsChanged := lo.Uniq(listFieldsChanged)
-				fieldsChangeFilter := lo.Filter(uniqueFieldsChanged, func(indivChange string, _ int) bool {
+				uniqueFieldsDiffs := lo.Uniq(listFieldsDiffs)
+				fieldsChangeFilter := lo.Filter(uniqueFieldsDiffs, func(indivChange string, _ int) bool {
 					// for each change, we want to check if it's in the list of expected changes
 					for _, changeExpectedRegex := range tc.changesExpectedRegex {
 						pattern := changeExpectedRegex

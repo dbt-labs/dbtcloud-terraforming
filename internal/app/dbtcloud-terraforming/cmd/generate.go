@@ -715,29 +715,23 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 					delete(configTyped, "adapter_id")
 
 					// handle the fields that don't come back from the API
-					_, exists := configTyped["oauth_client_id"]
-					if exists {
+					if _, exists := configTyped["oauth_client_id"]; exists {
 						configTyped["oauth_client_id"] = "---TBD---"
 					}
-					_, exists = configTyped["oauth_client_secret"]
-					if exists {
+					if _, exists := configTyped["oauth_client_secret"]; exists {
 						configTyped["oauth_client_secret"] = "---TBD---"
 					}
-					_, exists = configTyped["private_key"]
-					if exists {
+					if _, exists := configTyped["private_key"]; exists {
 						configTyped["private_key"] = "---TBD---"
 					}
-					_, exists = configTyped["application_id"]
-					if exists {
+					if _, exists := configTyped["application_id"]; exists {
 						configTyped["application_id"] = "---TBD---"
 					}
-					_, exists = configTyped["application_secret"]
-					if exists {
+					if _, exists := configTyped["application_secret"]; exists {
 						configTyped["application_secret"] = "---TBD---"
 					}
 					// For BQ, to handle the renaming of the fields
-					gcpProjectID, exists := configTyped["project_id"]
-					if exists && configSection == "bigquery" {
+					if gcpProjectID, exists := configTyped["project_id"]; exists && configSection == "bigquery" {
 						configTyped["gcp_project_id"] = gcpProjectID
 						delete(configTyped, "project_id")
 					}
