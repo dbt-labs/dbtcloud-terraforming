@@ -42,6 +42,12 @@ func init() {
 	// Cobra supports persistent flags, which, if defined here,
 	// will be global for your application.
 
+	// Output file
+	rootCmd.PersistentFlags().StringVarP(&outputFile, "output", "o", "", "Output file path. If not specified, output is written to stdout")
+	if err = viper.BindPFlag("output", rootCmd.PersistentFlags().Lookup("output")); err != nil {
+		log.Fatal(err)
+	}
+
 	// Account
 	rootCmd.PersistentFlags().StringVarP(&accountID, "account", "a", "", "Use specific account ID for commands. [env var: DBT_CLOUD_ACCOUNT_ID]")
 	if err = viper.BindPFlag("account", rootCmd.PersistentFlags().Lookup("account")); err != nil {
@@ -80,7 +86,7 @@ func init() {
 	// Debug logging mode
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Specify verbose output (same as setting log level to debug)")
 
-	rootCmd.PersistentFlags().StringSliceVar(&resourceTypes, "resource-types", []string{}, "List of resource types you wish to generate")
+	rootCmd.PersistentFlags().StringSliceVar(&resourceTypes, "resource-types", []string{}, "List of resource types you wish to generate. Use `all` to generate all resources")
 
 	rootCmd.PersistentFlags().StringSliceVar(&listLinkedResources, "linked-resource-types", []string{}, "List of resource types to make dependencies links to instead of using IDs. Can be set to 'all' for linking all resources")
 

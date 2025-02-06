@@ -5,7 +5,9 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 
+	"github.com/briandowns/spinner"
 	"github.com/hashicorp/go-version"
 	"github.com/hashicorp/hc-install/product"
 	"github.com/hashicorp/hc-install/releases"
@@ -41,6 +43,12 @@ func linkResource(resourceType string) bool {
 
 func generateResources() func(cmd *cobra.Command, args []string) {
 	return func(cmd *cobra.Command, args []string) {
+		spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithWriter(cmd.OutOrStderr()))
+		spin.Suffix = " Downloading resources and generating config"
+		spin.Color("purple")
+		spin.Start()
+		defer spin.Stop()
+
 		if len(resourceTypes) == 0 {
 			log.Fatal("you must define at least one --resource-types to generate the config")
 		}
@@ -97,8 +105,12 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 			log.Fatal("failed to detect provider installation")
 		}
 
-		for _, resourceType := range resourceTypes {
+		// Create a new empty HCL file for the output
+		f := hclwrite.NewEmptyFile()
+		rootBody := f.Body()
 
+		// Process each resource and add to the HCL file
+		for _, resourceType := range resourceTypes {
 			r := s.ResourceSchemas[resourceType]
 			log.Debugf("beginning to read and build %s resources", resourceType)
 
@@ -753,8 +765,6 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 				return
 			}
 
-			f := hclwrite.NewEmptyFile()
-			rootBody := f.Body()
 			for i := 0; i < resourceCount; i++ {
 				structData := jsonStructData[i].(map[string]interface{})
 
@@ -835,17 +845,21 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 				}
 
 				processBlocks(r.Block, jsonStructData[i].(map[string]interface{}), resource, "")
-				f.Body().AppendNewline()
+				rootBody.AppendNewline()
 			}
+		}
 
-			tfOutput := string(hclwrite.Format(f.Bytes()))
+		// Format the output
+		output := string(hclwrite.Format(f.Bytes()))
 
-			// HACK this is hacky but we need to fix the extended attributes to load as JSON
-			if resourceType == "dbtcloud_extended_attributes" {
-				tfOutput = regexFixExtendedAttributes(tfOutput)
-			}
+		// HACK this is hacky but we need to fix the extended attributes to load as JSON
+		if lo.Contains(resourceTypes, "dbtcloud_extended_attributes") {
+			output = regexFixExtendedAttributes(output)
+		}
 
-			fmt.Fprint(cmd.OutOrStdout(), tfOutput)
+		// Write the formatted output
+		if err := writeString(output); err != nil {
+			log.Fatalf("failed to write output: %v", err)
 		}
 	}
 }

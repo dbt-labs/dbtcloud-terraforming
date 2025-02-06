@@ -18,10 +18,10 @@ var genimportCmd = &cobra.Command{
 
 func runGenImport() func(cmd *cobra.Command, args []string) {
 	return func(cmd *cobra.Command, args []string) {
-		// First run generate
+		// First run generate                                                                                         // Start the spinner
 		generateResources()(cmd, args)
 
-		// Then run import
+		// Then run import                                                      // Start the spinner
 		runImport()(cmd, args)
 	}
 }

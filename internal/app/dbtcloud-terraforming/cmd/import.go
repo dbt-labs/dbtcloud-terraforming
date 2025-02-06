@@ -3,7 +3,9 @@ package cmd
 import (
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/briandowns/spinner"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/samber/lo"
 	"github.com/spf13/cobra"
@@ -47,6 +49,11 @@ var importCommand = &cobra.Command{
 
 func runImport() func(cmd *cobra.Command, args []string) {
 	return func(cmd *cobra.Command, args []string) {
+		spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithWriter(cmd.OutOrStderr()))
+		spin.Suffix = " Downloading resources and generating import statements"
+		spin.Start()
+		defer spin.Stop()
+
 		if len(resourceTypes) == 0 {
 			log.Fatal("you must define at least one --resource-types to generate the import commands/code")
 		}
@@ -160,11 +167,9 @@ func runImport() func(cmd *cobra.Command, args []string) {
 			importBody := importFile.Body()
 
 			for _, data := range jsonStructData {
-
 				var idStr string
 				switch id := data.(map[string]interface{})["id"].(type) {
 				case float64:
-					// Convert float64 to string, assuming you want to truncate to an integer
 					idStr = fmt.Sprintf("%.0f", id)
 				case string:
 					idStr = id
@@ -179,16 +184,16 @@ func runImport() func(cmd *cobra.Command, args []string) {
 					imp.SetAttributeValue("id", cty.StringVal(idvalue))
 					importFile.Body().AppendNewline()
 				} else {
-					fmt.Fprint(cmd.OutOrStdout(), buildTerraformImportCommand(resourceType, idStr, data))
+					if err := writeString(buildTerraformImportCommand(resourceType, idStr, data)); err != nil {
+						log.Fatalf("failed to write import command: %v", err)
+					}
 				}
 			}
+
 			if useModernImportBlock {
-
-				// don't format the output; there is a bug in hclwrite.Format that
-				// splits incorrectly on certain characters. instead, manually
-				// insert new lines on the block.
-				fmt.Fprint(cmd.OutOrStdout(), string(importFile.Bytes()))
-
+				if err := writeOutput(importFile); err != nil {
+					log.Fatalf("failed to write import blocks: %v", err)
+				}
 			}
 		}
 	}
