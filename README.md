@@ -15,8 +15,10 @@ Usage:
 Available Commands:
   completion  Generate the autocompletion script for the specified shell
   generate    Fetch resources from the dbt Cloud API and generate the respective Terraform stanzas
+  genimport   Generate Terraform resources configuration and import commands for dbt Cloud resources
   help        Help about any command
   import      Output `terraform import` compatible commands and/or import blocks (require terraform >= 1.5) in order to import resources into state
+  interactive Interactive mode to configure and run dbtcloud-terraforming
   version     Print the version number of dbtcloud-terraforming
 
 Flags:
@@ -24,9 +26,10 @@ Flags:
   -h, --help                            help for dbtcloud-terraforming
       --host-url string                 Host URL to use to query the API, includes the /api part. [env var: DBT_CLOUD_HOST_URL]
       --linked-resource-types strings   List of resource types to make dependencies links to instead of using IDs. Can be set to 'all' for linking all resources
-      --modern-import-block             Whether to generate HCL import blocks for generated resources instead of terraform import compatible CLI commands. This is only compatible with Terraform 1.5+
+      --modern-import-block             Whether to generate HCL import blocks for generated resources instead of terraform import compatible CLI commands. This is only compatible with Terraform 1.5+. Default=true (default true)
+  -o, --output string                   Output file path. If not specified, output is written to stdout
   -p, --projects ints                   Project IDs to limit the import for. Imports all projects if not set. [env var: DBT_CLOUD_PROJECTS]
-      --resource-types strings          List of resource types you wish to generate
+      --resource-types all              List of resource types you wish to generate. Use all to generate all resources
       --terraform-binary-path string    Path to an existing Terraform binary (otherwise, one will be downloaded)
       --terraform-install-path string   Path to an initialized Terraform working directory (default ".")
   -t, --token string                    API Token. [env var: DBT_CLOUD_TOKEN]
@@ -35,33 +38,33 @@ Flags:
 
 This tool can be used to load existing dbt Cloud configuration into Terraform. Currently the following resources are supported:
 
-| Resource                                   | Resource Scope | Generate Supported | Import Supported | Requires manual setup |
-| ------------------------------------------ | -------------- | ------------------ | ---------------- | --------------------- |
-| dbtcloud_bigquery_connection               | Project        | ✅                 | ✅               | 🔒                   |
-| dbtcloud_bigquery_credential               | Project        | ✅                 | ✅               |                       |
-| dbtcloud_connection                        | Project        | ✅                 | ✅               | 🔒*                  |
-| dbtcloud_databricks_credential             | Project        | ✅*                | ✅               | 🔒                    |
-| dbtcloud_environment                       | Project        | ✅                 | ✅               |                       |
-| dbtcloud_environment_variable              | Project        | ✅                 | ✅               | 🔒*                  |
-| dbtcloud_environment_variable_job_override | Project        |                    |                  |                       |
-| dbtcloud_extended_attributes(*)            | Project        | ✅                 | ✅               |                       |
-| dbtcloud_fabric_connection                 | Project        |                    |                  |                       |
-| dbtcloud_fabric_credential                 | Project        |                    |                  | 🔒                   |
-| dbtcloud_global_connection                 | Account        | ✅                 | ✅               | 🔒*                   |
-| dbtcloud_group                             | Account        | ✅                 | ✅               |                       |
-| dbtcloud_job                               | Project        | ✅                 | ✅               |                       |
-| dbtcloud_license_map                       | Account        |                    |                  |                       |
-| dbtcloud_notification                      | Account        | ✅                 | ✅               |                       |
-| dbtcloud_postgres_credential               | Project        |                    |                  | 🔒*                  |
-| dbtcloud_project                           | Project        | ✅                 | ✅               |                       |
-| dbtcloud_project_artefacts (deprecated)    | Project        | ❌                 | ❌               |                       |
-| dbtcloud_project_connection (deprecated)   | Project        | ❌                 | ❌               |                       |
-| dbtcloud_project_repository                | Project        | ✅                 | ✅               |                       |
-| dbtcloud_repository                        | Project        | ✅                 | ✅               |                       |
-| dbtcloud_service_token                     | Account        | ✅                 | ✅               |                      |
-| dbtcloud_snowflake_credential              | Project        | ✅                 | ✅               | 🔒                   |
-| dbtcloud_user_groups                       | Account        | ✅                 | ✅               |                       |
-| dbtcloud_webhook                           | Account        | ✅                 | ✅               |                       |
+| Resource                                                  | Resource Scope | Generate Supported | Import Supported | Requires manual setup |
+| --------------------------------------------------------- | -------------- | ------------------ | ---------------- | --------------------- |
+| dbtcloud_bigquery_connection (use glob conn if possible)  | Project        | ✅                 | ✅               | 🔒                   |
+| dbtcloud_bigquery_credential                              | Project        | ✅                 | ✅               |                       |
+| dbtcloud_connection (use glob conn if possible)           | Project        | ✅                 | ✅               | 🔒*                  |
+| dbtcloud_databricks_credential                            | Project        | ✅*                | ✅               | 🔒                    |
+| dbtcloud_environment                                      | Project        | ✅                 | ✅               |                       |
+| dbtcloud_environment_variable                             | Project        | ✅                 | ✅               | 🔒*                  |
+| dbtcloud_environment_variable_job_override                | Project        |                    |                  |                       |
+| dbtcloud_extended_attributes(*)                           | Project        | ✅                 | ✅               |                       |
+| dbtcloud_fabric_connection                                | Project        |                    |                  |                       |
+| dbtcloud_fabric_credential                                | Project        |                    |                  | 🔒                   |
+| dbtcloud_global_connection                                | Account        | ✅                 | ✅               | 🔒*                   |
+| dbtcloud_group                                            | Account        | ✅                 | ✅               |                       |
+| dbtcloud_job                                              | Project        | ✅                 | ✅               |                       |
+| dbtcloud_license_map                                      | Account        |                    |                  |                       |
+| dbtcloud_notification                                     | Account        | ✅                 | ✅               |                       |
+| dbtcloud_postgres_credential                              | Project        |                    |                  | 🔒*                  |
+| dbtcloud_project                                          | Project        | ✅                 | ✅               |                       |
+| dbtcloud_project_artefacts (deprecated)                   | Project        | ❌                 | ❌               |                       |
+| dbtcloud_project_connection (deprecated)                  | Project        | ❌                 | ❌               |                       |
+| dbtcloud_project_repository                               | Project        | ✅                 | ✅               |                       |
+| dbtcloud_repository                                       | Project        | ✅                 | ✅               |                       |
+| dbtcloud_service_token                                    | Account        | ✅                 | ✅               |                      |
+| dbtcloud_snowflake_credential                             | Project        | ✅                 | ✅               | 🔒                   |
+| dbtcloud_user_groups                                      | Account        | ✅                 | ✅               |                       |
+| dbtcloud_webhook                                          | Account        | ✅                 | ✅               |                       |
 
 Notes:
 
@@ -133,6 +136,11 @@ If you already have a file defining the provider, you can point `dbtcloud-terraf
 
 Install the tool and run commands like below:
 
+To run it in "interactive" mode and be prompted for the different options available
+```sh
+dbtcloud-terraforming interactive
+```
+
 To generate the config
 
 ```sh
@@ -143,6 +151,12 @@ To generate the import blocks
 
 ```sh
 dbtcloud-terraforming import --resource-types dbtcloud_project,dbtcloud_environment,dbtcloud_job --modern-import-block
+```
+
+To generate both
+
+```sh
+dbtcloud-terraforming genimport --resource-types all 
 ```
 
 Once both of the outputs are generated, you can copy paste them in a terraform file having the `dbtcloud` provider already set up and you can run a `terraform plan`.
