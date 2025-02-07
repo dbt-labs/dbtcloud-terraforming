@@ -49,10 +49,12 @@ var importCommand = &cobra.Command{
 
 func runImport() func(cmd *cobra.Command, args []string) {
 	return func(cmd *cobra.Command, args []string) {
-		spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithWriter(cmd.OutOrStderr()))
-		spin.Suffix = " Downloading resources and generating import statements"
-		spin.Start()
-		defer spin.Stop()
+		if outputFile != "" {
+			spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithWriter(cmd.OutOrStderr()))
+			spin.Suffix = " Downloading resources and generating import statements\n"
+			spin.Start()
+			defer spin.Stop()
+		}
 
 		if len(resourceTypes) == 0 {
 			log.Fatal("you must define at least one --resource-types to generate the import commands/code")
@@ -64,6 +66,10 @@ func runImport() func(cmd *cobra.Command, args []string) {
 		hostURL = viper.GetString("host-url")
 		if hostURL == "" {
 			hostURL = "https://cloud.getdbt.com/api"
+		}
+
+		if len(resourceTypes) == 1 && resourceTypes[0] == "all" {
+			resourceTypes = lo.Keys(resourceImportStringFormats)
 		}
 
 		for _, resourceType := range resourceTypes {

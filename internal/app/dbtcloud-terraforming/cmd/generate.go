@@ -43,11 +43,13 @@ func linkResource(resourceType string) bool {
 
 func generateResources() func(cmd *cobra.Command, args []string) {
 	return func(cmd *cobra.Command, args []string) {
-		spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithWriter(cmd.OutOrStderr()))
-		spin.Suffix = " Downloading resources and generating config"
-		spin.Color("purple")
-		spin.Start()
-		defer spin.Stop()
+		if outputFile != "" {
+			spin := spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithWriter(cmd.OutOrStderr()))
+			spin.Suffix = " Downloading resources and generating config\n"
+			spin.Color("purple")
+			spin.Start()
+			defer spin.Stop()
+		}
 
 		if len(resourceTypes) == 0 {
 			log.Fatal("you must define at least one --resource-types to generate the config")
@@ -761,8 +763,8 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 
 			// If we don't have any resources to generate, just bail out early.
 			if resourceCount == 0 {
-				fmt.Fprintf(cmd.OutOrStderr(), "no resources of type %q found to generate", resourceType)
-				return
+				fmt.Fprintf(cmd.OutOrStderr(), "# no resources of type %q found to generate\n", resourceType)
+				continue
 			}
 
 			for i := 0; i < resourceCount; i++ {
