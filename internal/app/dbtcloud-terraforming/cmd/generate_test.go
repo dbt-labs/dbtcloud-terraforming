@@ -41,9 +41,6 @@ var (
 		"c": "d",
 		"e": "f",
 	}
-
-	// TODO see if we want to keep this
-	dbtCloudTestAccountID = "31"
 )
 
 func TestGenerate_writeAttrLine(t *testing.T) {
@@ -80,7 +77,7 @@ func TestGenerate_writeAttrLine(t *testing.T) {
 }
 
 func TestGenerate_ResourceNotSupported(t *testing.T) {
-	output, err := executeCommandC(rootCmd, "--terraform-binary-path", "/opt/homebrew/bin/terraform", "--terraform-install-path", "/Users/bper/dev/dbtcloud-terraforming", "generate", "--resource-types", "notreal")
+	output, err := executeCommandC(rootCmd, "--terraform-binary-path", "/opt/homebrew/bin/terraform", "--terraform-install-path", "/Users/adrianburus/git/dbtcloud-terraforming", "generate", "--resource-types", "notreal")
 
 	assert.Nil(t, err)
 	assert.Equal(t, output, `"notreal" is not yet supported for automatic generation`)
@@ -155,7 +152,9 @@ func TestResourceGeneration(t *testing.T) {
 			resourceTypes = []string{}
 			listLinkedResources = []string{}
 
-			output, err = executeCommandC(rootCmd, "--terraform-binary-path", "/opt/homebrew/bin/terraform", "--terraform-install-path", "/Users/bper/dev/dbtcloud-terraforming", "generate", "--resource-types", tc.resourceType, "--account", dbtCloudTestAccountID)
+			output, err = executeCommandC(rootCmd, "--terraform-binary-path", "/opt/homebrew/bin/terraform",
+				"--terraform-install-path", "/Users/adrianburus/git/dbtcloud-terraforming", "generate", "--resource-types",
+				tc.resourceType, "--account", viper.GetString("account"))
 			if err != nil {
 				log.Fatal(err)
 			}

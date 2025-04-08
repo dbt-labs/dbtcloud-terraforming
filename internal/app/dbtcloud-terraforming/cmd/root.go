@@ -8,7 +8,7 @@ import (
 )
 
 var log = logrus.New()
-var zoneID, hostURL, apiToken, accountID, terraformInstallPath, terraformBinaryPath string
+var zoneID, hostURL, apiToken, accountID, terraformInstallPath, terraformingInstallPath, terraformBinaryPath string
 var listFilterProjects []int
 var verbose, useModernImportBlock bool
 var dbtCloudClient *dbtcloud.DbtCloudHTTPClient
@@ -72,6 +72,14 @@ func init() {
 		log.Fatal(err)
 	}
 	if err = viper.BindEnv("host-url", "DBT_CLOUD_HOST_URL"); err != nil {
+		log.Fatal(err)
+	}
+
+	rootCmd.PersistentFlags().StringVarP(&terraformingInstallPath, "terraforming-install-path", "", "", "Path to installation [env var: TERRAFORMING_INSTALL_PATH]")
+	if err = viper.BindPFlag("terraforming-install-path", rootCmd.PersistentFlags().Lookup("terraforming-install-path")); err != nil {
+		log.Fatal(err)
+	}
+	if err = viper.BindEnv("terraforming-install-path", "TERRAFORMING_INSTALL_PATH"); err != nil {
 		log.Fatal(err)
 	}
 
