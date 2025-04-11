@@ -77,7 +77,8 @@ func TestGenerate_writeAttrLine(t *testing.T) {
 }
 
 func TestGenerate_ResourceNotSupported(t *testing.T) {
-	output, err := executeCommandC(rootCmd, "--terraform-binary-path", "/opt/homebrew/bin/terraform", "--terraform-install-path", "/Users/adrianburus/git/dbtcloud-terraforming", "generate", "--resource-types", "notreal")
+	path := viper.GetString("terraforming-install-path")
+	output, err := executeCommandC(rootCmd, "--terraform-binary-path", "/opt/homebrew/bin/terraform", "--terraform-install-path", path, "generate", "--resource-types", "notreal")
 
 	assert.Nil(t, err)
 	assert.Equal(t, output, `"notreal" is not yet supported for automatic generation`)
@@ -152,8 +153,9 @@ func TestResourceGeneration(t *testing.T) {
 			resourceTypes = []string{}
 			listLinkedResources = []string{}
 
+			path := viper.GetString("terraforming-install-path")
 			output, err = executeCommandC(rootCmd, "--terraform-binary-path", "/opt/homebrew/bin/terraform",
-				"--terraform-install-path", "/Users/adrianburus/git/dbtcloud-terraforming", "generate", "--resource-types",
+				"--terraform-install-path", path, "generate", "--resource-types",
 				tc.resourceType, "--account", viper.GetString("account"))
 			if err != nil {
 				log.Fatal(err)
