@@ -119,9 +119,9 @@ func runInteractive(cmd *cobra.Command, args []string) {
 		huh.NewSelect[string]().
 			Title("Select Command").
 			Options(
+				huh.NewOption("Generate both resource configurations and import commands/blocks", "genimport"),
 				huh.NewOption("Generate resources configuration", "generate"),
 				huh.NewOption("Generate import commands/blocks", "import"),
-				huh.NewOption("Generate both resource configurations and import commands/blocks", "genimport"),
 			).
 			Value(&selectedCommand),
 
@@ -175,7 +175,7 @@ func runInteractive(cmd *cobra.Command, args []string) {
 	// Fourth group - Output options
 	groups = append(groups, huh.NewGroup(
 		huh.NewInput().
-			Title("Output file path (optional, will show output in stdout if not set)").
+			Title("Output file path, should end with .tf (optional, will show output in stdout if not set)").
 			Value(&outputFile),
 	))
 

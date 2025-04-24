@@ -43,7 +43,7 @@ This tool can be used to load existing dbt Cloud configuration into Terraform. C
 | dbtcloud_bigquery_connection (use glob conn if possible)  | Project        | ✅                 | ✅               | 🔒                   |
 | dbtcloud_bigquery_credential                              | Project        | ✅                 | ✅               |                       |
 | dbtcloud_connection (use glob conn if possible)           | Project        | ✅                 | ✅               | 🔒*                  |
-| dbtcloud_databricks_credential                            | Project        | ✅*                | ✅               | 🔒                    |
+| dbtcloud_databricks_credential                            | Project        | ✅                 | ✅               | 🔒                    |
 | dbtcloud_environment                                      | Project        | ✅                 | ✅               |                       |
 | dbtcloud_environment_variable                             | Project        | ✅                 | ✅               | 🔒*                  |
 | dbtcloud_environment_variable_job_override                | Project        |                    |                  |                       |
@@ -69,7 +69,6 @@ This tool can be used to load existing dbt Cloud configuration into Terraform. C
 Notes:
 
 - `dbtcloud_extended_attributes` currently doesn't generate config for nested fields, only top level ones
-- `dbtcloud_databricks_credential` requires manually linking the `adapter_id` with the relevant `dbtcloud_connection`
 
 ## How to use the tool
 

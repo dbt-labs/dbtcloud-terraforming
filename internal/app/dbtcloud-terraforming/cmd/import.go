@@ -72,6 +72,9 @@ func runImport() func(cmd *cobra.Command, args []string) {
 			resourceTypes = lo.Keys(resourceImportStringFormats)
 		}
 
+		importFile := hclwrite.NewEmptyFile()
+		importBody := importFile.Body()
+
 		for _, resourceType := range resourceTypes {
 
 			switch resourceType {
@@ -169,9 +172,6 @@ func runImport() func(cmd *cobra.Command, args []string) {
 				return
 			}
 
-			importFile := hclwrite.NewEmptyFile()
-			importBody := importFile.Body()
-
 			for _, data := range jsonStructData {
 				var idStr string
 				switch id := data.(map[string]interface{})["id"].(type) {
@@ -196,10 +196,10 @@ func runImport() func(cmd *cobra.Command, args []string) {
 				}
 			}
 
-			if useModernImportBlock {
-				if err := writeOutput(importFile); err != nil {
-					log.Fatalf("failed to write import blocks: %v", err)
-				}
+		}
+		if useModernImportBlock {
+			if err := writeOutput(importFile); err != nil {
+				log.Fatalf("failed to write import blocks: %v", err)
 			}
 		}
 	}

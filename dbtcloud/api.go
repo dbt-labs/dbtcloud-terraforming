@@ -301,7 +301,7 @@ func (c *DbtCloudHTTPClient) GetEnvironmentVariables(listProjects []int) map[int
 		projectTyped := project.(map[string]any)
 		projectID := int(projectTyped["id"].(float64))
 
-		if len(listProjects) > 0 && lo.Contains(listProjects, projectID) == false {
+		if len(listProjects) > 0 && !lo.Contains(listProjects, projectID) {
 			continue
 		}
 
@@ -497,6 +497,12 @@ func (c *DbtCloudHTTPClient) GetServiceTokenPermissions(serviceTokenID int) []an
 
 func (c *DbtCloudHTTPClient) GetGlobalConnection(id int64) (any, error) {
 	url := fmt.Sprintf("%s/v3/accounts/%s/connections/%d/", c.HostURL, c.AccountID, id)
+
+	return c.GetSingleData(url)
+}
+
+func (c *DbtCloudHTTPClient) GetCredential(projectId, id int64) (any, error) {
+	url := fmt.Sprintf("%s/v3/accounts/%s/projects/%d/credentials/%d/", c.HostURL, c.AccountID, projectId, id)
 
 	return c.GetSingleData(url)
 }
