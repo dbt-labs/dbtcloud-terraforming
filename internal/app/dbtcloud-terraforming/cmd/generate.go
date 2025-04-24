@@ -246,10 +246,10 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 
 								if lo.Contains([]string{"snowflake", "bigquery"}, credentialsType) {
 									environmentsTyped["credential_id"] = fmt.Sprintf("dbtcloud_%s_credential.terraform_managed_resource_%0.f.credential_id", credentialsType, credentialID)
-								} else if adapterVersion != "databricks_v0" {
+								} else if adapterVersion == "databricks_v0" {
 									environmentsTyped["credential_id"] = fmt.Sprintf("dbtcloud_databricks_credential.terraform_managed_resource_%0.f.credential_id", credentialID)
 								} else {
-									environmentsTyped["credential_id"] = "---TBD---credential type not supported yet---"
+									environmentsTyped["credential_id"] = fmt.Sprintf("---TBD---credential type not supported yet for %s---", adapterVersion)
 								}
 
 							} else {
@@ -409,21 +409,28 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 				for _, credential := range listCredentials {
 					credentialTyped := credential.(map[string]any)
 
+					credentialDetails, err := dbtCloudClient.GetCredential(int64(credentialTyped["project_id"].(float64)), int64(credentialTyped["id"].(float64)))
+					if err != nil {
+						log.Fatal(err)
+					}
+					for key, value := range credentialDetails.(map[string]any)["unencrypted_credential_details"].(map[string]any) {
+						credentialTyped[key] = value
+					}
+
+					// we remove the adapter_id as we will use global connections
+					credentialTyped["adapter_id"] = ""
+
 					projectID := credentialTyped["project_id"].(float64)
 					credentialTyped["adapter_type"] = "databricks"
 					credentialTyped["token"] = "---TBD---"
 
-					// it is not easy to get back the schema for "adapter" type connections
-					// so for now, it stays as TBD
-					credentialTyped["schema"] = "---TBD---"
+					// the target_name is deprecated at the credentials level
+					delete(credentialTyped, "target_name")
 
 					if linkResource("dbtcloud_project") {
 						credentialTyped["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%0.f.id", projectID)
 					}
 
-					if linkResource("dbtcloud_connection") {
-						credentialTyped["adapter_id"] = "dbtcloud_connection.terraform_managed_resource_CONNECTION_ID_TBD.adapter_id"
-					}
 					jsonStructData = append(jsonStructData, credentialTyped)
 				}
 
