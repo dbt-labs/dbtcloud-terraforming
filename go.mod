@@ -1,7 +1,6 @@
 module github.com/dbt-labs/dbtcloud-terraforming
 
-go 1.21.0
-toolchain go1.24.1
+go 1.24.2
 
 require (
 	github.com/MakeNowJust/heredoc/v2 v2.0.1
