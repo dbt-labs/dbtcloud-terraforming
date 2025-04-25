@@ -76,7 +76,7 @@ Notes:
 
 #### All OSes
 
-Download the executable for your platform [from the GitHUb releases page](https://github.com/dbt-labs/dbtcloud-terraforming/releases/tag/v0.2.0) and extract it.
+Download the executable for your platform [from the GitHUb releases page](https://github.com/dbt-labs/dbtcloud-terraforming/releases) and extract it.
 You can then add it to your PATH and run it with `dbtcloud-terraforming` or run it based on its location (e.g. `./dbtcloud-terraforming`).
 
 To update to the latest version, you can head back to the release page and download and extract the executable again.
