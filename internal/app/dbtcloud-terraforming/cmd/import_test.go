@@ -81,7 +81,8 @@ func TestResourceImport(t *testing.T) {
 			resourceTypes = []string{}
 			listLinkedResources = []string{}
 			listFilterProjects = []int{}
-			argsGenerate := []string{"--terraform-binary-path", "/opt/homebrew/bin/terraform", "--terraform-install-path", "/Users/bper/dev/dbtcloud-terraforming", "generate", "--resource-types", tc.resourceTypes, "--linked-resource-types", tc.listLinkedResources, "--account", dbtCloudTestAccountID}
+			path := viper.GetString("terraforming-install-path")
+			argsGenerate := []string{"--terraform-binary-path", "/opt/homebrew/bin/terraform", "--terraform-install-path", path, "generate", "--resource-types", tc.resourceTypes, "--linked-resource-types", tc.listLinkedResources, "--account", viper.GetString("account")}
 			combinedArgsGenerate := append(argsGenerate, projectsParam...)
 			outputGenerate, err := executeCommandC(rootCmd, combinedArgsGenerate...)
 			if err != nil {
@@ -92,7 +93,7 @@ func TestResourceImport(t *testing.T) {
 			resourceTypes = []string{}
 			listLinkedResources = []string{}
 			listFilterProjects = []int{}
-			argsImport := []string{"--terraform-binary-path", "/opt/homebrew/bin/terraform", "--terraform-install-path", "/Users/bper/dev/dbtcloud-terraforming", "import", "--modern-import-block", "--resource-types", tc.resourceTypes, "--linked-resource-types", tc.listLinkedResources, "--account", dbtCloudTestAccountID}
+			argsImport := []string{"--terraform-binary-path", "/opt/homebrew/bin/terraform", "--terraform-install-path", path, "import", "--modern-import-block", "--resource-types", tc.resourceTypes, "--linked-resource-types", tc.listLinkedResources, "--account", viper.GetString("account")}
 			combinedArgsImport := append(argsImport, projectsParam...)
 			outputImport, err = executeCommandC(rootCmd, combinedArgsImport...)
 			if err != nil {
