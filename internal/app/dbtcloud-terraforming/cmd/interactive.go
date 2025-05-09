@@ -113,7 +113,7 @@ func runInteractive(cmd *cobra.Command, args []string) {
 		))
 	}
 
-	// Second group - Command and resource selection
+	// group 2 - Command and resource selection
 	groups = append(groups, huh.NewGroup(
 		// Command selection
 		huh.NewSelect[string]().
@@ -158,7 +158,21 @@ func runInteractive(cmd *cobra.Command, args []string) {
 			Value(&selectedLinkedResources),
 	))
 
-	// Third group - Import options
+	// group 3 - Generate options
+	if !rootCmd.PersistentFlags().Changed("parameterize-jobs") {
+		parameterizeJobs = false
+		groups = append(groups, huh.NewGroup(
+			// Parameterize jobs option
+			huh.NewConfirm().
+				Title("Parameterize jobs? (Creates locals to control job triggers)").
+				Value(&parameterizeJobs),
+		).WithHideFunc(func() bool {
+			// Only show the parameterize jobs option if the command is not generate
+			return selectedCommand == "import"
+		}))
+	}
+
+	//  group 4 - Import options
 	if !rootCmd.PersistentFlags().Changed("modern-import-block") {
 		useModernImport = true
 		groups = append(groups, huh.NewGroup(
@@ -172,7 +186,7 @@ func runInteractive(cmd *cobra.Command, args []string) {
 		}))
 	}
 
-	// Fourth group - Output options
+	// group 5 - Output options
 	groups = append(groups, huh.NewGroup(
 		huh.NewInput().
 			Title("Output file path, should end with .tf (optional, will show output in stdout if not set)").

@@ -10,7 +10,7 @@ import (
 var log = logrus.New()
 var zoneID, hostURL, apiToken, accountID, terraformInstallPath, terraformBinaryPath string
 var listFilterProjects []int
-var verbose, useModernImportBlock bool
+var verbose, useModernImportBlock, parameterizeJobs bool
 var dbtCloudClient *dbtcloud.DbtCloudHTTPClient
 var terraformImportCmdPrefix = "terraform import"
 var terraformResourceNamePrefix = "terraform_managed_resource"
@@ -90,23 +90,29 @@ func init() {
 
 	rootCmd.PersistentFlags().StringSliceVar(&listLinkedResources, "linked-resource-types", []string{}, "List of resource types to make dependencies links to instead of using IDs. Can be set to 'all' for linking all resources")
 
-	rootCmd.PersistentFlags().BoolVarP(&useModernImportBlock, "modern-import-block", "", true, "Whether to generate HCL import blocks for generated resources instead of terraform import compatible CLI commands. This is only compatible with Terraform 1.5+. Default=true")
+	rootCmd.PersistentFlags().BoolVarP(&useModernImportBlock, "modern-import-block", "", true, "Whether to generate HCL import blocks for generated resources instead of terraform import compatible CLI commands. This is only compatible with Terraform 1.5+.")
 
-	rootCmd.PersistentFlags().StringVar(&terraformInstallPath, "terraform-install-path", ".", "Path to an initialized Terraform working directory")
+	rootCmd.PersistentFlags().StringVar(&terraformInstallPath, "terraform-install-path", ".", "Path to an initialized Terraform working directory [env var: DBT_CLOUD_TERRAFORM_INSTALL_PATH]")
 
 	if err = viper.BindPFlag("terraform-install-path", rootCmd.PersistentFlags().Lookup("terraform-install-path")); err != nil {
-		log.Fatal(err)
-	}
-
-	rootCmd.PersistentFlags().StringVar(&terraformBinaryPath, "terraform-binary-path", "", "Path to an existing Terraform binary (otherwise, one will be downloaded)")
-
-	if err = viper.BindPFlag("terraform-binary-path", rootCmd.PersistentFlags().Lookup("terraform-binary-path")); err != nil {
 		log.Fatal(err)
 	}
 
 	if err = viper.BindEnv("terraform-install-path", "DBT_CLOUD_TERRAFORM_INSTALL_PATH"); err != nil {
 		log.Fatal(err)
 	}
+
+	rootCmd.PersistentFlags().StringVar(&terraformBinaryPath, "terraform-binary-path", "", "Path to an existing Terraform binary (otherwise, one will be downloaded) [env var: DBT_CLOUD_TERRAFORM_BINARY_PATH]")
+
+	if err = viper.BindPFlag("terraform-binary-path", rootCmd.PersistentFlags().Lookup("terraform-binary-path")); err != nil {
+		log.Fatal(err)
+	}
+
+	if err = viper.BindEnv("terraform-binary-path", "DBT_CLOUD_TERRAFORM_BINARY_PATH"); err != nil {
+		log.Fatal(err)
+	}
+
+	rootCmd.PersistentFlags().BoolVarP(&parameterizeJobs, "parameterize-jobs", "", false, "Whether to parameterize jobs. Default=false")
 }
 
 // initConfig reads ENV variables if set.

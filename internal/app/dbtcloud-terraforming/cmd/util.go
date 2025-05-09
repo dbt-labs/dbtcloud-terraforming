@@ -219,8 +219,22 @@ func writeAttrLine(key string, value interface{}, parentName string, body *hclwr
 		}
 		sort.Strings(sortedKeys)
 
+		// Check if "github_webhook" exists in the map
+		containTriggers := false
+		triggersTokens := []*hclwrite.Token{{Type: hclsyntax.TokenIdent, Bytes: []byte("{")}}
+
 		ctyMap := make(map[string]cty.Value)
 		for _, v := range sortedKeys {
+			if (v == "github_webhook" || v == "git_provider_webhook" || v == "schedule" || v == "on_merge") && key == "triggers" && parameterizeJobs {
+				// Store the value and flag for later use with SetAttributeRaw
+				containTriggers = true
+				triggersTokens = append(triggersTokens, &hclwrite.Token{Type: hclsyntax.TokenIdent, Bytes: []byte("\n")})
+				triggersTokens = append(triggersTokens, &hclwrite.Token{Type: hclsyntax.TokenIdent, Bytes: []byte(v + " = ")})
+				triggersTokens = append(triggersTokens, &hclwrite.Token{Type: hclsyntax.TokenIdent, Bytes: []byte(values[v].(string))})
+				// Skip adding to ctyMap since we'll handle it separately
+				continue
+			}
+
 			if hasNumber(v) {
 				ctyMap[fmt.Sprintf("%s", v)] = cty.StringVal(values[v].(string))
 			} else {
@@ -234,10 +248,19 @@ func writeAttrLine(key string, value interface{}, parentName string, body *hclwr
 				case int:
 					ctyMap[v] = cty.NumberIntVal(int64(val))
 				}
-
 			}
 		}
+
+		// Set the regular attributes with SetAttributeValue
 		body.SetAttributeValue(key, cty.ObjectVal(ctyMap))
+
+		// If github_webhook exists, set it with SetAttributeRaw
+		if containTriggers {
+			triggersTokens = append(triggersTokens, &hclwrite.Token{Type: hclsyntax.TokenIdent, Bytes: []byte("\n")})
+			triggersTokens = append(triggersTokens, &hclwrite.Token{Type: hclsyntax.TokenIdent, Bytes: []byte("}")})
+			body.SetAttributeRaw(key, triggersTokens)
+		}
+
 	case []interface{}:
 		var stringItems []string
 		var intItems []int

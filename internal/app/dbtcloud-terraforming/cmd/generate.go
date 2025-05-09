@@ -167,11 +167,22 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 
 					jobTriggers := jobTyped["triggers"].(map[string]any)
 
-					triggers := map[string]any{
-						"github_webhook":       getBool(jobTriggers["github_webhook"]),
-						"git_provider_webhook": getBool(jobTriggers["git_provider_webhook"]),
-						"schedule":             getBool(jobTriggers["schedule"]),
-						"on_merge":             getBool(jobTriggers["on_merge"]),
+					// we allow deactivating jobs based on a local variable
+					var triggers map[string]any
+					if parameterizeJobs {
+						triggers = map[string]any{
+							"github_webhook":       fmt.Sprintf("local.deactivate_jobs_pr ? false : %t", getBool(jobTriggers["github_webhook"])),
+							"git_provider_webhook": fmt.Sprintf("local.deactivate_jobs_pr ? false : %t", getBool(jobTriggers["git_provider_webhook"])),
+							"schedule":             fmt.Sprintf("local.deactivate_jobs_schedule ? false : %t", getBool(jobTriggers["schedule"])),
+							"on_merge":             fmt.Sprintf("local.deactivate_jobs_merge ? false : %t", getBool(jobTriggers["on_merge"])),
+						}
+					} else {
+						triggers = map[string]any{
+							"github_webhook":       getBool(jobTriggers["github_webhook"]),
+							"git_provider_webhook": getBool(jobTriggers["git_provider_webhook"]),
+							"schedule":             getBool(jobTriggers["schedule"]),
+							"on_merge":             getBool(jobTriggers["on_merge"]),
+						}
 					}
 
 					jobTyped["triggers"] = triggers
@@ -856,6 +867,16 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 				processBlocks(r.Block, jsonStructData[i].(map[string]interface{}), resource, "")
 				rootBody.AppendNewline()
 			}
+		}
+
+		// Add locals block if parameterizeJobs is true
+		if parameterizeJobs {
+			localsBody := rootBody
+			localsBlock := localsBody.AppendNewBlock("locals", nil).Body()
+			localsBlock.SetAttributeValue("deactivate_jobs_pr", cty.BoolVal(false))
+			localsBlock.SetAttributeValue("deactivate_jobs_schedule", cty.BoolVal(false))
+			localsBlock.SetAttributeValue("deactivate_jobs_merge", cty.BoolVal(false))
+			localsBody.AppendNewline()
 		}
 
 		// Format the output
