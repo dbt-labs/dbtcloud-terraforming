@@ -418,13 +418,14 @@ func (c *DbtCloudHTTPClient) GetCredentials(listProjects []int) []any {
 
 	// we need to keep only the credentials for active environments
 	allEnvironments := c.GetEnvironments(listProjects)
-	allCredentialIDs := lo.Map(allEnvironments, func(env any, index int) int {
-		credentialID, ok := env.(map[string]any)["credentials_id"].(float64)
+
+	credentialToEnvironmentID := map[float64]float64{}
+	lo.ForEach(allEnvironments, func(env any, index int) {
+		envTyped := env.(map[string]any)
+		credentialID, ok := envTyped["credentials_id"].(float64)
 		if ok {
-			return int(credentialID)
-		} else {
-			// some environments don't have credentials, so we default to -1 to avoid matching real environment IDs
-			return -1
+			environmentID := envTyped["id"].(float64)
+			credentialToEnvironmentID[credentialID] = environmentID
 		}
 	})
 
@@ -432,9 +433,10 @@ func (c *DbtCloudHTTPClient) GetCredentials(listProjects []int) []any {
 	for _, credential := range allCredentials {
 		dataTyped := credential.(map[string]any)
 		credentialsID := dataTyped["id"].(float64)
-		if lo.Contains(allCredentialIDs, int(credentialsID)) == false {
+		if _, ok := credentialToEnvironmentID[credentialsID]; !ok {
 			continue
 		}
+		credential.(map[string]any)["environment_id"] = credentialToEnvironmentID[credentialsID]
 		filteredCredentials = append(filteredCredentials, credential)
 	}
 	return filteredCredentials
