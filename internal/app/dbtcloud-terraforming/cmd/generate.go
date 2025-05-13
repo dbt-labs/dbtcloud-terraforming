@@ -2,15 +2,18 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/briandowns/spinner"
+	"github.com/gosimple/slug"
 	"github.com/hashicorp/go-version"
 	"github.com/hashicorp/hc-install/product"
 	"github.com/hashicorp/hc-install/releases"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/hashicorp/terraform-exec/tfexec"
 	"github.com/samber/lo"
@@ -22,6 +25,7 @@ import (
 )
 
 var resourceTypes, listLinkedResources []string
+var prefixNoQuotes = "~no-quotes~"
 
 func init() {
 	rootCmd.AddCommand(generateCmd)
@@ -33,6 +37,14 @@ var generateCmd = &cobra.Command{
 	Run:    generateResources(),
 	PreRun: sharedPreRun,
 }
+
+type tfVar struct {
+	varType        string
+	varName        string
+	varDescription string
+}
+
+var AllTFVars = []tfVar{}
 
 func linkResource(resourceType string) bool {
 	if len(listLinkedResources) == 0 {
@@ -149,12 +161,12 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 			switch resourceType {
 			case "dbtcloud_project":
 
-				jsonStructData = dbtCloudClient.GetProjects(listFilterProjects)
+				jsonStructData = prefetchedProjects
 				resourceCount = len(jsonStructData)
 
 			case "dbtcloud_job":
 
-				jobs := dbtCloudClient.GetJobs(listFilterProjects)
+				jobs := prefetchedJobs
 
 				for _, job := range jobs {
 					jobTyped := job.(map[string]any)
@@ -194,10 +206,10 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 					var triggers map[string]any
 					if parameterizeJobs {
 						triggers = map[string]any{
-							"github_webhook":       fmt.Sprintf("local.deactivate_jobs_pr ? false : %t", getBool(jobTriggers["github_webhook"])),
-							"git_provider_webhook": fmt.Sprintf("local.deactivate_jobs_pr ? false : %t", getBool(jobTriggers["git_provider_webhook"])),
-							"schedule":             fmt.Sprintf("local.deactivate_jobs_schedule ? false : %t", getBool(jobTriggers["schedule"])),
-							"on_merge":             fmt.Sprintf("local.deactivate_jobs_merge ? false : %t", getBool(jobTriggers["on_merge"])),
+							"github_webhook":       fmt.Sprintf("%slocal.deactivate_jobs_pr ? false : %t", prefixNoQuotes, getBool(jobTriggers["github_webhook"])),
+							"git_provider_webhook": fmt.Sprintf("%slocal.deactivate_jobs_pr ? false : %t", prefixNoQuotes, getBool(jobTriggers["git_provider_webhook"])),
+							"schedule":             fmt.Sprintf("%slocal.deactivate_jobs_schedule ? false : %t", prefixNoQuotes, getBool(jobTriggers["schedule"])),
+							"on_merge":             fmt.Sprintf("%slocal.deactivate_jobs_merge ? false : %t", prefixNoQuotes, getBool(jobTriggers["on_merge"])),
 						}
 					} else {
 						triggers = map[string]any{
@@ -212,16 +224,16 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 
 					if linkResource("dbtcloud_environment") {
 						environmentID := jobTyped["environment_id"].(float64)
-						jobTyped["environment_id"] = fmt.Sprintf("dbtcloud_environment.terraform_managed_resource_%0.f.environment_id", environmentID)
+						jobTyped["environment_id"] = fmt.Sprintf("%sdbtcloud_environment.terraform_managed_resource_%0.f.environment_id", prefixNoQuotes, environmentID)
 
 						// handle the case when deferring_environment_id is not set
 						if deferringEnvironmentID, ok := jobTyped["deferring_environment_id"].(float64); ok {
-							jobTyped["deferring_environment_id"] = fmt.Sprintf("dbtcloud_environment.terraform_managed_resource_%0.f.environment_id", deferringEnvironmentID)
+							jobTyped["deferring_environment_id"] = fmt.Sprintf("%sdbtcloud_environment.terraform_managed_resource_%0.f.environment_id", prefixNoQuotes, deferringEnvironmentID)
 						}
 					}
 					if linkResource("dbtcloud_project") {
 						projectID := jobTyped["project_id"].(float64)
-						jobTyped["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%0.f.id", projectID)
+						jobTyped["project_id"] = fmt.Sprintf("%sdbtcloud_project.terraform_managed_resource_%0.f.id", prefixNoQuotes, projectID)
 					}
 
 					jobCompletionTrigger, ok := jobTyped["job_completion_trigger_condition"].(map[string]any)
@@ -239,11 +251,11 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 						}
 
 						if linkResource("dbtcloud_job") {
-							completionTriggers["job_id"] = fmt.Sprintf("dbtcloud_job.terraform_managed_resource_%0.f.id", jobID)
+							completionTriggers["job_id"] = fmt.Sprintf("%sdbtcloud_job.terraform_managed_resource_%0.f.id", prefixNoQuotes, jobID)
 						}
 
 						if linkResource("dbtcloud_project") {
-							completionTriggers["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%0.f.id", projectID)
+							completionTriggers["project_id"] = fmt.Sprintf("%sdbtcloud_project.terraform_managed_resource_%0.f.id", prefixNoQuotes, projectID)
 						}
 
 						jobTyped["job_completion_trigger_condition"] = completionTriggers
@@ -263,7 +275,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 					projectID := environmentsTyped["project_id"].(float64)
 
 					if linkResource("dbtcloud_project") {
-						environmentsTyped["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%0.f.id", projectID)
+						environmentsTyped["project_id"] = fmt.Sprintf("%sdbtcloud_project.terraform_managed_resource_%0.f.id", prefixNoQuotes, projectID)
 					}
 
 					// handle the case when credentialID is not a float because it is null
@@ -279,9 +291,9 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 								adapterVersion := credentials["adapter_version"].(string)
 
 								if lo.Contains([]string{"snowflake", "bigquery"}, credentialsType) {
-									environmentsTyped["credential_id"] = fmt.Sprintf("dbtcloud_%s_credential.terraform_managed_resource_%0.f.credential_id", credentialsType, credentialID)
+									environmentsTyped["credential_id"] = fmt.Sprintf("%sdbtcloud_%s_credential.terraform_managed_resource_%0.f.credential_id", prefixNoQuotes, credentialsType, credentialID)
 								} else if adapterVersion == "databricks_v0" {
-									environmentsTyped["credential_id"] = fmt.Sprintf("dbtcloud_databricks_credential.terraform_managed_resource_%0.f.credential_id", credentialID)
+									environmentsTyped["credential_id"] = fmt.Sprintf("%sdbtcloud_databricks_credential.terraform_managed_resource_%0.f.credential_id", prefixNoQuotes, credentialID)
 								} else {
 									environmentsTyped["credential_id"] = fmt.Sprintf("---TBD---credential type not supported yet for %s---", adapterVersion)
 								}
@@ -293,13 +305,13 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 					}
 					if linkResource("dbtcloud_global_connection") {
 						connectionID := environmentsTyped["connection_id"].(float64)
-						environmentsTyped["connection_id"] = fmt.Sprintf("dbtcloud_global_connection.terraform_managed_resource_%0.f.id", connectionID)
+						environmentsTyped["connection_id"] = fmt.Sprintf("%sdbtcloud_global_connection.terraform_managed_resource_%0.f.id", prefixNoQuotes, connectionID)
 					}
 
 					// handle the case when extended_attributes_id is not set
 					if extendedAttributesID, ok := environmentsTyped["extended_attributes_id"].(float64); ok {
 						if linkResource("dbtcloud_extended_attributes") {
-							environmentsTyped["extended_attributes_id"] = fmt.Sprintf("dbtcloud_extended_attributes.terraform_managed_resource_%0.f.extended_attributes_id", extendedAttributesID)
+							environmentsTyped["extended_attributes_id"] = fmt.Sprintf("%sdbtcloud_extended_attributes.terraform_managed_resource_%0.f.extended_attributes_id", prefixNoQuotes, extendedAttributesID)
 						}
 					}
 
@@ -317,7 +329,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 
 					projectID := repositoryTyped["project_id"].(float64)
 					if linkResource("dbtcloud_project") {
-						repositoryTyped["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%0.f.id", projectID)
+						repositoryTyped["project_id"] = fmt.Sprintf("%sdbtcloud_project.terraform_managed_resource_%0.f.id", prefixNoQuotes, projectID)
 					}
 					jsonStructData = append(jsonStructData, repositoryTyped)
 				}
@@ -332,15 +344,17 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 					projectTyped := project.(map[string]any)
 					projectID := projectTyped["id"].(float64)
 					projectTyped["project_id"] = projectID
-					jsonStructData = append(jsonStructData, projectTyped)
+					repositoryID := projectTyped["repository_id"]
 
 					if linkResource("dbtcloud_project") {
 						projectID := projectTyped["project_id"]
-						projectTyped["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%0.f.id", projectID)
+						projectTyped["project_id"] = fmt.Sprintf("%sdbtcloud_project.terraform_managed_resource_%0.f.id", prefixNoQuotes, projectID)
 					}
 					if linkResource("dbtcloud_repository") {
-						repositoryID := projectTyped["repository_id"]
-						projectTyped["repository_id"] = fmt.Sprintf("dbtcloud_repository.terraform_managed_resource_%0.f.repository_id", repositoryID)
+						projectTyped["repository_id"] = fmt.Sprintf("%sdbtcloud_repository.terraform_managed_resource_%0.f.repository_id", prefixNoQuotes, repositoryID)
+					}
+					if repositoryID != nil {
+						jsonStructData = append(jsonStructData, projectTyped)
 					}
 				}
 
@@ -365,7 +379,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 						envDetails["project_id"] = projectID
 
 						if linkResource("dbtcloud_project") {
-							envDetails["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%d.id", projectID)
+							envDetails["project_id"] = fmt.Sprintf("%sdbtcloud_project.terraform_managed_resource_%d.id", prefixNoQuotes, projectID)
 						}
 
 						// we need to make int a map[string]any to work with the matching strategy
@@ -383,8 +397,15 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 								envValuesTyped := envValues.(map[string]any)
 								collectEnvValues[envName] = envValuesTyped["value"].(string)
 
+								targetURL := fmt.Sprintf("%s/deploy/%s/projects/%d/environments/", dbtCloudClient.HostURL[:len(dbtCloudClient.HostURL)-4], dbtCloudClient.AccountID, projectID)
 								if strings.HasPrefix(envVarName, "DBT_ENV_SECRET_") {
-									collectEnvValues[envName] = "---TBD secret env var---"
+									varName := fmt.Sprintf("dbtcloud_environment_variable_%d_%s_%s", projectID, envVarName, slug.Make(envName))
+									AllTFVars = append(AllTFVars, tfVar{
+										varType:        "string",
+										varName:        varName,
+										varDescription: "The secret env var for " + envVarName + " in the environment " + envName + " in the project " + fmt.Sprintf("%d", projectID) + " - " + targetURL,
+									})
+									collectEnvValues[envName] = fmt.Sprintf("%svar.%s", prefixNoQuotes, varName)
 								}
 							}
 						}
@@ -399,7 +420,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 
 							listDependsOn := []string{}
 							for _, matchingEnv := range matchingEnvs {
-								listDependsOn = append(listDependsOn, fmt.Sprintf("dbtcloud_environment.terraform_managed_resource_%0.f", matchingEnv.(map[string]any)["id"].(float64)))
+								listDependsOn = append(listDependsOn, fmt.Sprintf("%sdbtcloud_environment.terraform_managed_resource_%0.f", prefixNoQuotes, matchingEnv.(map[string]any)["id"].(float64)))
 							}
 							envDetails["depends_on"] = listDependsOn
 						}
@@ -419,18 +440,39 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 					credentialTyped := credential.(map[string]any)
 
 					projectID := credentialTyped["project_id"].(float64)
+					credentialID := credentialTyped["id"].(float64)
+					environmentID := credentialTyped["environment_id"].(float64)
 					credentialTyped["num_threads"] = credentialTyped["threads"]
 
+					targetURL := fmt.Sprintf("%s/deploy/%s/projects/%0.f/environments/%0.f/settings/", dbtCloudClient.HostURL[:len(dbtCloudClient.HostURL)-4], dbtCloudClient.AccountID, projectID, environmentID)
 					switch credentialTyped["auth_type"] {
 					case "password":
-						credentialTyped["password"] = "---TBD---"
+						varName := fmt.Sprintf("dbtcloud_snowflake_credential_password_%0.f", credentialID)
+						AllTFVars = append(AllTFVars, tfVar{
+							varType:        "string",
+							varName:        varName,
+							varDescription: "The password for the snowflake credential " + fmt.Sprintf("%0.f", credentialID) + " - " + targetURL,
+						})
+						credentialTyped["password"] = fmt.Sprintf("%svar.%s", prefixNoQuotes, varName)
 					case "keypair":
-						credentialTyped["private_key"] = "---TBD---"
-						credentialTyped["private_key_passphrase"] = "---TBD---"
+						varName := fmt.Sprintf("dbtcloud_snowflake_credential_private_key_%0.f", credentialID)
+						AllTFVars = append(AllTFVars, tfVar{
+							varType:        "string",
+							varName:        varName,
+							varDescription: "The private key for the snowflake credential " + fmt.Sprintf("%0.f", credentialID) + " - " + targetURL,
+						})
+						credentialTyped["private_key"] = fmt.Sprintf("%svar.%s", prefixNoQuotes, varName)
+						varNamePassphrase := fmt.Sprintf("dbtcloud_snowflake_credential_private_key_passphrase_%0.f", credentialID)
+						AllTFVars = append(AllTFVars, tfVar{
+							varType:        "string",
+							varName:        varNamePassphrase,
+							varDescription: "The passphrase for the snowflake credential " + fmt.Sprintf("%0.f", credentialID) + " - " + targetURL,
+						})
+						credentialTyped["private_key_passphrase"] = fmt.Sprintf("%svar.%s", prefixNoQuotes, varNamePassphrase)
 					}
 
 					if linkResource("dbtcloud_project") {
-						credentialTyped["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%0.f.id", projectID)
+						credentialTyped["project_id"] = fmt.Sprintf("%sdbtcloud_project.terraform_managed_resource_%0.f.id", prefixNoQuotes, projectID)
 					}
 					jsonStructData = append(jsonStructData, credentialTyped)
 				}
@@ -455,14 +497,23 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 					credentialTyped["adapter_id"] = ""
 
 					projectID := credentialTyped["project_id"].(float64)
+					credentialID := credentialTyped["id"].(float64)
 					credentialTyped["adapter_type"] = "databricks"
-					credentialTyped["token"] = "---TBD---"
+
+					targetURL := fmt.Sprintf("%s/deploy/%s/projects/%0.f/settings/credentials/", dbtCloudClient.HostURL[:len(dbtCloudClient.HostURL)-4], dbtCloudClient.AccountID, projectID)
+					varName := fmt.Sprintf("dbtcloud_databricks_credential_token_%0.f", credentialID)
+					AllTFVars = append(AllTFVars, tfVar{
+						varType:        "string",
+						varName:        varName,
+						varDescription: "The token for the databricks credential " + fmt.Sprintf("%0.f", credentialID) + " - " + targetURL,
+					})
+					credentialTyped["token"] = fmt.Sprintf("%svar.%s", prefixNoQuotes, varName)
 
 					// the target_name is deprecated at the credentials level
 					delete(credentialTyped, "target_name")
 
 					if linkResource("dbtcloud_project") {
-						credentialTyped["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%0.f.id", projectID)
+						credentialTyped["project_id"] = fmt.Sprintf("%sdbtcloud_project.terraform_managed_resource_%0.f.id", prefixNoQuotes, projectID)
 					}
 
 					jsonStructData = append(jsonStructData, credentialTyped)
@@ -481,7 +532,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 					credentialTyped["dataset"] = credentialTyped["schema"]
 
 					if linkResource("dbtcloud_project") {
-						credentialTyped["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%0.f.id", projectID)
+						credentialTyped["project_id"] = fmt.Sprintf("%sdbtcloud_project.terraform_managed_resource_%0.f.id", prefixNoQuotes, projectID)
 					}
 					jsonStructData = append(jsonStructData, credentialTyped)
 				}
@@ -495,12 +546,16 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 				for _, connection := range bigqueryConnections {
 					connectionTyped := connection.(map[string]any)
 					projectID := connectionTyped["project_id"].(float64)
+					connectionID := connectionTyped["id"].(float64)
+
 					connectionDetailsTyped := connectionTyped["details"].(map[string]any)
 
 					// we "promote" all details fields one level up like in the Terraform resource
 					for detailKey, detailVal := range connectionDetailsTyped {
 						connectionTyped[detailKey] = detailVal
 					}
+					// we have to put back the ID as it is only set at the top level
+					connectionTyped["id"] = connectionID
 
 					// we set the project IDs to the correct values
 					// unfortunately project ID can mean a dbt Cloud project or a GCP project
@@ -508,10 +563,17 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 					connectionTyped["gcp_project_id"] = connectionDetailsTyped["project_id"]
 
 					// we add the secure fields
-					connectionTyped["private_key"] = "---TBD---"
+					varName := fmt.Sprintf("dbtcloud_bigquery_connection_private_key_%0.f", connectionID)
+					targetURL := fmt.Sprintf("%s/settings/accounts/%s/pages/connections/%0.f/", dbtCloudClient.HostURL[:len(dbtCloudClient.HostURL)-4], dbtCloudClient.AccountID, connectionID)
+					AllTFVars = append(AllTFVars, tfVar{
+						varType:        "string",
+						varName:        varName,
+						varDescription: "The private key for the bigquery connection " + fmt.Sprintf("%0.f", connectionID) + " - " + targetURL,
+					})
+					connectionTyped["private_key"] = fmt.Sprintf("%svar.%s", prefixNoQuotes, varName)
 
 					if linkResource("dbtcloud_project") {
-						connectionTyped["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%0.f.id", projectID)
+						connectionTyped["project_id"] = fmt.Sprintf("%sdbtcloud_project.terraform_managed_resource_%0.f.id", prefixNoQuotes, projectID)
 					}
 
 					bigqueryConnectionsTyped = append(bigqueryConnectionsTyped, connectionTyped)
@@ -527,12 +589,15 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 				for _, connection := range genericConnections {
 					connectionTyped := connection.(map[string]any)
 					projectID := connectionTyped["project_id"].(float64)
+					connectionID := connectionTyped["id"].(float64)
 					connectionDetailsTyped := connectionTyped["details"].(map[string]any)
 
 					// we "promote" all details fields one level up like in the Terraform resource
 					for detailKey, detailVal := range connectionDetailsTyped {
 						connectionTyped[detailKey] = detailVal
 					}
+					// we have to put back the ID as it is only set at the top level
+					connectionTyped["id"] = connectionID
 
 					if connectionTyped["type"] == "snowflake" {
 						connectionTyped["oauth_client_id"] = "---TBD if using OAuth, otherwise delete---"
@@ -572,7 +637,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 					}
 
 					if linkResource("dbtcloud_project") {
-						connectionTyped["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%0.f.id", projectID)
+						connectionTyped["project_id"] = fmt.Sprintf("%sdbtcloud_project.terraform_managed_resource_%0.f.id", prefixNoQuotes, projectID)
 					}
 
 					genericConnectionsTyped = append(genericConnectionsTyped, connectionTyped)
@@ -598,7 +663,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 					extendedAttributesTyped["state"] = ""
 
 					if linkResource("dbtcloud_project") {
-						extendedAttributesTyped["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%0.f.id", projectID)
+						extendedAttributesTyped["project_id"] = fmt.Sprintf("%sdbtcloud_project.terraform_managed_resource_%0.f.id", prefixNoQuotes, projectID)
 					}
 					jsonStructData = append(jsonStructData, extendedAttributesTyped)
 				}
@@ -606,7 +671,6 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 				resourceCount = len(jsonStructData)
 
 			// not limited by project
-
 			case "dbtcloud_group":
 
 				listGroups := dbtCloudClient.GetGroups()
@@ -634,8 +698,8 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 						newGroupPermissionsTyped := []map[string]any{}
 						for _, groupPermission := range groupPermissions {
 							groupPermissionTyped := groupPermission.(map[string]any)
-							if groupPermissionTyped["all_projects"] == false {
-								groupPermissionTyped["project_id"] = fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%0.f.id", groupPermissionTyped["project_id"].(float64))
+							if groupPermissionTyped["all_projects"] == false && lo.Contains(prefetchedProjectsIDs, int(groupPermissionTyped["project_id"].(float64))) {
+								groupPermissionTyped["project_id"] = fmt.Sprintf("%sdbtcloud_project.terraform_managed_resource_%0.f.id", prefixNoQuotes, groupPermissionTyped["project_id"].(float64))
 							}
 							newGroupPermissionsTyped = append(newGroupPermissionsTyped, groupPermissionTyped)
 						}
@@ -667,7 +731,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 
 					if linkResource("dbtcloud_group") {
 						linkedGroupIDs := lo.Map(groupIDs, func(i int, index int) string {
-							return fmt.Sprintf("dbtcloud_group.terraform_managed_resource_%d.id", i)
+							return fmt.Sprintf("%sdbtcloud_group.terraform_managed_resource_%d.id", prefixNoQuotes, i)
 						})
 						userTyped["group_ids"] = linkedGroupIDs
 					}
@@ -687,12 +751,21 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 						jobIDs := []string{}
 						for _, jobID := range webhookTyped["job_ids"].([]any) {
 							jobIDTyped := jobID.(string)
-							jobIDs = append(jobIDs, jobIDTyped)
+							// we remove jobs that are not relevant to the current project or that have been deleted
+							if lo.Contains(prefetchedJobsIDsString, jobIDTyped) {
+								jobIDs = append(jobIDs, jobIDTyped)
+							}
 						}
 						linkedJobIDs := lo.Map(jobIDs, func(s string, index int) string {
-							return fmt.Sprintf("dbtcloud_job.terraform_managed_resource_%s.id", s)
+							return fmt.Sprintf("%sdbtcloud_job.terraform_managed_resource_%s.id", prefixNoQuotes, s)
 						})
 						webhookTyped["job_ids"] = linkedJobIDs
+
+						// if there is no more job to be linked once filtered, but there are some in the config, we skip the resource
+						// because having an empty list of job means "all jobs" from a dbt Cloud API standpoint
+						if len(linkedJobIDs) == 0 && len(webhookTyped["job_ids"].([]string)) > 0 {
+							continue
+						}
 					}
 
 					jsonStructData = append(jsonStructData, webhookTyped)
@@ -722,10 +795,13 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 
 							for _, jobID := range notificationTyped[notifHook].([]any) {
 								jobIDTyped := jobID.(float64)
-								jobIDs = append(jobIDs, jobIDTyped)
+								// we remove jobs that are not relevant to the current project or that have been deleted
+								if lo.Contains(prefetchedJobsIDs, int(jobIDTyped)) {
+									jobIDs = append(jobIDs, jobIDTyped)
+								}
 							}
 							linkedJobIDs := lo.Map(jobIDs, func(f float64, index int) string {
-								return fmt.Sprintf("dbtcloud_job.terraform_managed_resource_%.0f.id", f)
+								return fmt.Sprintf("%sdbtcloud_job.terraform_managed_resource_%.0f.id", prefixNoQuotes, f)
 							})
 							notificationTyped[notifHook] = linkedJobIDs
 						}
@@ -747,14 +823,17 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 					permissions := dbtCloudClient.GetServiceTokenPermissions(serviceTokenID)
 
 					if linkResource("dbtcloud_project") {
-						for i, permissionsSet := range permissions {
+						permissionsFilteredProjects := []any{}
+						for _, permissionsSet := range permissions {
 							permissionsSetTyped := permissionsSet.(map[string]any)
-							if permissionsSetTyped["project_id"] != nil {
+							if permissionsSetTyped["project_id"] != nil && lo.Contains(prefetchedProjectsIDs, int(permissionsSetTyped["project_id"].(float64))) {
 								projectID := permissionsSetTyped["project_id"].(float64)
-								projectResources := fmt.Sprintf("dbtcloud_project.terraform_managed_resource_%.0f.id", projectID)
-								permissions[i].(map[string]any)["project_id"] = projectResources
+								projectResources := fmt.Sprintf("%sdbtcloud_project.terraform_managed_resource_%.0f.id", prefixNoQuotes, projectID)
+								permissionsSetTyped["project_id"] = projectResources
+								permissionsFilteredProjects = append(permissionsFilteredProjects, permissionsSetTyped)
 							}
 						}
+						permissions = permissionsFilteredProjects
 					}
 
 					serviceTokenTyped["service_token_permissions"] = permissions
@@ -769,28 +848,58 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 
 				for _, connection := range listConnections {
 					connectionTyped := connection.(map[string]any)
-					jsonStructData = append(jsonStructData, connectionTyped)
 
 					configSection := getAdapterFromAdapterVersion(connectionTyped["adapter_version"].(string))
 
 					configTyped := connectionTyped["config"].(map[string]any)
 					delete(configTyped, "adapter_id")
+					targetURL := fmt.Sprintf("%s/settings/accounts/%s/pages/connections/%0.f/", dbtCloudClient.HostURL[:len(dbtCloudClient.HostURL)-4], dbtCloudClient.AccountID, connectionTyped["id"].(float64))
 
 					// handle the fields that don't come back from the API
 					if _, exists := configTyped["oauth_client_id"]; exists {
-						configTyped["oauth_client_id"] = "---TBD---"
+						varName := fmt.Sprintf("dbtcloud_global_connection_oauth_client_id_%0.f", connectionTyped["id"].(float64))
+						AllTFVars = append(AllTFVars, tfVar{
+							varType:        "string",
+							varName:        varName,
+							varDescription: "The OAuth client ID for the global connection " + fmt.Sprintf("%0.f", connectionTyped["id"].(float64)) + " - " + targetURL,
+						})
+						configTyped["oauth_client_id"] = fmt.Sprintf("%svar.%s", prefixNoQuotes, varName)
 					}
 					if _, exists := configTyped["oauth_client_secret"]; exists {
-						configTyped["oauth_client_secret"] = "---TBD---"
+						varName := fmt.Sprintf("dbtcloud_global_connection_oauth_client_secret_%0.f", connectionTyped["id"].(float64))
+						AllTFVars = append(AllTFVars, tfVar{
+							varType:        "string",
+							varName:        varName,
+							varDescription: "The OAuth client secret for the global connection " + fmt.Sprintf("%0.f", connectionTyped["id"].(float64)) + " - " + targetURL,
+						})
+						configTyped["oauth_client_secret"] = fmt.Sprintf("%svar.%s", prefixNoQuotes, varName)
 					}
 					if _, exists := configTyped["private_key"]; exists {
-						configTyped["private_key"] = "---TBD---"
+						varName := fmt.Sprintf("dbtcloud_global_connection_private_key_%0.f", connectionTyped["id"].(float64))
+						AllTFVars = append(AllTFVars, tfVar{
+							varType:        "string",
+							varName:        varName,
+							varDescription: "The private key for the global connection " + fmt.Sprintf("%0.f", connectionTyped["id"].(float64)) + " - " + targetURL,
+						})
+						configTyped["private_key"] = fmt.Sprintf("%svar.%s", prefixNoQuotes, varName)
 					}
 					if _, exists := configTyped["application_id"]; exists {
-						configTyped["application_id"] = "---TBD---"
+						varName := fmt.Sprintf("dbtcloud_global_connection_application_id_%0.f", connectionTyped["id"].(float64))
+						AllTFVars = append(AllTFVars, tfVar{
+							varType:        "string",
+							varName:        varName,
+							varDescription: "The application ID for the global connection " + fmt.Sprintf("%0.f", connectionTyped["id"].(float64)) + " - " + targetURL,
+						})
+						configTyped["application_id"] = fmt.Sprintf("%svar.%s", prefixNoQuotes, varName)
 					}
 					if _, exists := configTyped["application_secret"]; exists {
-						configTyped["application_secret"] = "---TBD---"
+						varName := fmt.Sprintf("dbtcloud_global_connection_application_secret_%0.f", connectionTyped["id"].(float64))
+						AllTFVars = append(AllTFVars, tfVar{
+							varType:        "string",
+							varName:        varName,
+							varDescription: "The application secret for the global connection " + fmt.Sprintf("%0.f", connectionTyped["id"].(float64)) + " - " + targetURL,
+						})
+						configTyped["application_secret"] = fmt.Sprintf("%svar.%s", prefixNoQuotes, varName)
 					}
 					// For BQ, to handle the renaming of the fields
 					if gcpProjectID, exists := configTyped["project_id"]; exists && configSection == "bigquery" {
@@ -798,7 +907,8 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 						delete(configTyped, "project_id")
 					}
 
-					connectionTyped[configSection] = connectionTyped["config"]
+					connectionTyped[configSection] = configTyped
+					jsonStructData = append(jsonStructData, connectionTyped)
 
 				}
 
@@ -827,7 +937,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 					case float64:
 						id = fmt.Sprintf("%.0f", structData["id"].(float64))
 					case nil:
-						panic("There is no `id` defined for the resources")
+						panic(fmt.Sprintf("There is no `id` defined for the resource %s", resourceType))
 					default:
 						id = structData["id"].(string)
 					}
@@ -899,23 +1009,74 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 			}
 		}
 
+		// Add the variables
+		if len(AllTFVars) > 0 {
+			// Add a comment to the file
+			comment := hclwrite.Tokens{
+				&hclwrite.Token{
+					Type:         hclsyntax.TokenComment,
+					Bytes:        []byte("# The variables defined for fields we couldn't retrieve\n\n"),
+					SpacesBefore: 0,
+				},
+			}
+			rootBody.AppendUnstructuredTokens(comment)
+
+			for _, tfVar := range AllTFVars {
+				variablesBlock := rootBody.AppendNewBlock("variable", []string{tfVar.varName}).Body()
+				hclTokens := []*hclwrite.Token{{Type: hclsyntax.TokenIdent, Bytes: []byte(tfVar.varType)}}
+				variablesBlock.SetAttributeRaw("type", hclTokens)
+				variablesBlock.SetAttributeValue("description", cty.StringVal(tfVar.varDescription))
+				rootBody.AppendNewline()
+			}
+		}
+
 		// Add locals block if parameterizeJobs is true
 		if parameterizeJobs {
-			localsBody := rootBody
-			localsBlock := localsBody.AppendNewBlock("locals", nil).Body()
+
+			comment := hclwrite.Tokens{
+				&hclwrite.Token{
+					Type:         hclsyntax.TokenComment,
+					Bytes:        []byte("# The locals used to activate/deactivate jobs\n\n"),
+					SpacesBefore: 0,
+				},
+			}
+			rootBody.AppendUnstructuredTokens(comment)
+			localsBlock := rootBody.AppendNewBlock("locals", nil).Body()
 			localsBlock.SetAttributeValue("deactivate_jobs_pr", cty.BoolVal(false))
 			localsBlock.SetAttributeValue("deactivate_jobs_schedule", cty.BoolVal(false))
 			localsBlock.SetAttributeValue("deactivate_jobs_merge", cty.BoolVal(false))
-			localsBody.AppendNewline()
+			rootBody.AppendNewline()
+		}
+
+		// Add template for the variable values
+		if len(AllTFVars) > 0 {
+			// Add a comment to the file
+			comment := hclwrite.Tokens{
+				&hclwrite.Token{
+					Type:         hclsyntax.TokenComment,
+					Bytes:        []byte("# Copy past the following lines in terraform.tfvars\n\n"),
+					SpacesBefore: 0,
+				},
+			}
+			rootBody.AppendUnstructuredTokens(comment)
+
+			for _, tfVar := range AllTFVars {
+				comment := hclwrite.Tokens{
+					&hclwrite.Token{
+						Type:         hclsyntax.TokenComment,
+						Bytes:        []byte(fmt.Sprintf("# %s = \"\"", tfVar.varName)),
+						SpacesBefore: 0,
+					},
+				}
+				rootBody.AppendUnstructuredTokens(comment)
+				rootBody.AppendNewline()
+			}
+			rootBody.AppendNewline()
+			rootBody.AppendNewline()
 		}
 
 		// Format the output
 		output := string(hclwrite.Format(f.Bytes()))
-
-		// HACK this is hacky but we need to fix the extended attributes to load as JSON
-		if lo.Contains(resourceTypes, "dbtcloud_extended_attributes") {
-			output = regexFixExtendedAttributes(output)
-		}
 
 		// Write the formatted output
 		if err := writeString(output); err != nil {
