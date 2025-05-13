@@ -221,7 +221,7 @@ func writeAttrLine(key string, value interface{}, parentName string, body *hclwr
 					hclTokens = append(hclTokens, &hclwrite.Token{Type: hclsyntax.TokenIdent, Bytes: []byte("\n")})
 					hclTokens = append(hclTokens, &hclwrite.Token{Type: hclsyntax.TokenIdent, Bytes: []byte(v + ` = `)})
 					hclTokens = append(hclTokens, &hclwrite.Token{Type: hclsyntax.TokenIdent, Bytes: []byte(vStr)})
-				continue
+					continue
 				}
 			}
 
@@ -229,21 +229,21 @@ func writeAttrLine(key string, value interface{}, parentName string, body *hclwr
 				v = fmt.Sprintf("%s", v)
 			}
 			// else {
-				switch val := values[v].(type) {
-				case string:
-					ctyMap[v] = cty.StringVal(val)
-				case float64:
-					ctyMap[v] = cty.NumberFloatVal(val)
-				case bool:
-					ctyMap[v] = cty.BoolVal(val)
-				case int:
-					ctyMap[v] = cty.NumberIntVal(int64(val))
+			switch val := values[v].(type) {
+			case string:
+				ctyMap[v] = cty.StringVal(val)
+			case float64:
+				ctyMap[v] = cty.NumberFloatVal(val)
+			case bool:
+				ctyMap[v] = cty.BoolVal(val)
+			case int:
+				ctyMap[v] = cty.NumberIntVal(int64(val))
 			}
 		}
 
 		if !unquotedValues {
 			// Set the regular attributes with SetAttributeValue via the cty approach (easy)
-		body.SetAttributeValue(key, cty.ObjectVal(ctyMap))
+			body.SetAttributeValue(key, cty.ObjectVal(ctyMap))
 
 		} else {
 			// If there are unquoted values we set them via lower level hclwrite.Token API
@@ -330,9 +330,8 @@ func writeAttrLine(key string, value interface{}, parentName string, body *hclwr
 		if parentName == "query" && key == "value" && value == "" {
 			body.SetAttributeValue(key, cty.StringVal(""))
 		}
-		if strIsResourceType(value.(string)) {
+		if shouldQuote, valueStr := strShouldQuote(value.(string)); !shouldQuote {
 
-			valueStr := value.(string)
 			tokens := []*hclwrite.Token{
 				{Type: hclsyntax.TokenIdent, Bytes: []byte(valueStr)},
 			}
