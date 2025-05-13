@@ -111,6 +111,29 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 		f := hclwrite.NewEmptyFile()
 		rootBody := f.Body()
 
+		// set jobs and projects oustide of the for loop so that we can reference them in other resources
+		// and make sure we remove jobs/projects that no longer exist but are still associated with other resources
+
+		// we always get all projects
+		prefetchedProjects := dbtCloudClient.GetProjects(listFilterProjects)
+		prefetchedProjectsIDs := lo.Map(prefetchedProjects, func(project any, index int) int {
+			return int(project.(map[string]any)["id"].(float64))
+		})
+
+		// we only get jobs if we need them, there might be a lot of them
+		prefetchedJobs := []any{}
+		resourceNeedingJobs := []string{"dbtcloud_job", "dbtcloud_webhook", "dbtcloud_notification"}
+		if len(lo.Intersect(resourceTypes, resourceNeedingJobs)) > 0 {
+			prefetchedJobs = dbtCloudClient.GetJobs(listFilterProjects)
+		}
+		prefetchedJobsIDs := lo.Map(prefetchedJobs, func(job any, index int) int {
+			return int(job.(map[string]any)["id"].(float64))
+		})
+		// we need this because our API for webhooks returns job IDs as strings
+		prefetchedJobsIDsString := lo.Map(prefetchedJobsIDs, func(jobID int, index int) string {
+			return fmt.Sprintf("%d", jobID)
+		})
+
 		// Process each resource and add to the HCL file
 		for _, resourceType := range resourceTypes {
 			r := s.ResourceSchemas[resourceType]
