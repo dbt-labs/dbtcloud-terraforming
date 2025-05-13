@@ -7,6 +7,7 @@ require (
 	github.com/briandowns/spinner v1.23.2
 	github.com/charmbracelet/huh v0.6.0
 	github.com/go-test/deep v1.0.3
+	github.com/gosimple/slug v1.15.0
 	github.com/hashicorp/go-version v1.6.0
 	github.com/hashicorp/hc-install v0.5.2
 	github.com/hashicorp/hcl/v2 v2.17.0
@@ -43,6 +44,7 @@ require (
 	github.com/fatih/color v1.13.0 // indirect
 	github.com/fsnotify/fsnotify v1.6.0 // indirect
 	github.com/google/go-cmp v0.5.9 // indirect
+	github.com/gosimple/unidecode v1.0.1 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
