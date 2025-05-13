@@ -564,6 +564,13 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 				for _, extendedAttributes := range listExtendedAttributes {
 					extendedAttributesTyped := extendedAttributes.(map[string]any)
 
+					marshalledExtendedAttributes, err := json.Marshal(extendedAttributesTyped["extended_attributes"].(map[string]any))
+					if err != nil {
+						log.Panicf("Error marshalling extended attributes: %s", err)
+					}
+					jsonValue := string(marshalledExtendedAttributes)
+					extendedAttributesTyped["extended_attributes"] = jsonValue
+
 					projectID := extendedAttributesTyped["project_id"].(float64)
 					extendedAttributesTyped["state"] = ""
 
