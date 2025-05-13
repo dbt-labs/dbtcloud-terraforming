@@ -20,28 +20,14 @@ import (
 
 var hasNumber = regexp.MustCompile("[0-9]+").MatchString
 
-func strIsResourceType(str string) bool {
-	startsWith := strings.HasPrefix(str, "dbtcloud_")
+func strShouldQuote(str string) (bool, string) {
+	startsWith := strings.HasPrefix(str, prefixNoQuotes)
 
-	dotCount := 0
-	for _, char := range str {
-		if char == '.' {
-			dotCount++
-		}
-	}
-	// when we use depends_on there is one dot
-	// when we link resource attributes, there are two dots
-	return startsWith && dotCount >= 1
-}
-
-func contains(slice []string, item string) bool {
-	set := make(map[string]struct{}, len(slice))
-	for _, s := range slice {
-		set[s] = struct{}{}
+	if startsWith {
+		return false, str[len(prefixNoQuotes):]
 	}
 
-	_, ok := set[item]
-	return ok
+	return true, str
 }
 
 func executeCommandC(root *cobra.Command, args ...string) (output string, err error) {
@@ -219,25 +205,30 @@ func writeAttrLine(key string, value interface{}, parentName string, body *hclwr
 		}
 		sort.Strings(sortedKeys)
 
-		// Check if "github_webhook" exists in the map
-		containTriggers := false
-		triggersTokens := []*hclwrite.Token{{Type: hclsyntax.TokenIdent, Bytes: []byte("{")}}
+		unquotedValues := false
+		hclTokens := []*hclwrite.Token{{Type: hclsyntax.TokenIdent, Bytes: []byte("{")}}
 
 		ctyMap := make(map[string]cty.Value)
 		for _, v := range sortedKeys {
-			if (v == "github_webhook" || v == "git_provider_webhook" || v == "schedule" || v == "on_merge") && key == "triggers" && parameterizeJobs {
-				// Store the value and flag for later use with SetAttributeRaw
-				containTriggers = true
-				triggersTokens = append(triggersTokens, &hclwrite.Token{Type: hclsyntax.TokenIdent, Bytes: []byte("\n")})
-				triggersTokens = append(triggersTokens, &hclwrite.Token{Type: hclsyntax.TokenIdent, Bytes: []byte(v + " = ")})
-				triggersTokens = append(triggersTokens, &hclwrite.Token{Type: hclsyntax.TokenIdent, Bytes: []byte(values[v].(string))})
-				// Skip adding to ctyMap since we'll handle it separately
+
+			// Check if values[v] can be safely type asserted to string
+			if strValue, ok := values[v].(string); ok {
+				if shouldQuote, vStr := strShouldQuote(strValue); !shouldQuote {
+					unquotedValues = true
+					if key == "environment_values" {
+						v = `"` + v + `"`
+					}
+					hclTokens = append(hclTokens, &hclwrite.Token{Type: hclsyntax.TokenIdent, Bytes: []byte("\n")})
+					hclTokens = append(hclTokens, &hclwrite.Token{Type: hclsyntax.TokenIdent, Bytes: []byte(v + ` = `)})
+					hclTokens = append(hclTokens, &hclwrite.Token{Type: hclsyntax.TokenIdent, Bytes: []byte(vStr)})
 				continue
+				}
 			}
 
 			if hasNumber(v) {
-				ctyMap[fmt.Sprintf("%s", v)] = cty.StringVal(values[v].(string))
-			} else {
+				v = fmt.Sprintf("%s", v)
+			}
+			// else {
 				switch val := values[v].(type) {
 				case string:
 					ctyMap[v] = cty.StringVal(val)
@@ -247,18 +238,38 @@ func writeAttrLine(key string, value interface{}, parentName string, body *hclwr
 					ctyMap[v] = cty.BoolVal(val)
 				case int:
 					ctyMap[v] = cty.NumberIntVal(int64(val))
-				}
 			}
 		}
 
-		// Set the regular attributes with SetAttributeValue
+		if !unquotedValues {
+			// Set the regular attributes with SetAttributeValue via the cty approach (easy)
 		body.SetAttributeValue(key, cty.ObjectVal(ctyMap))
 
-		// If github_webhook exists, set it with SetAttributeRaw
-		if containTriggers {
-			triggersTokens = append(triggersTokens, &hclwrite.Token{Type: hclsyntax.TokenIdent, Bytes: []byte("\n")})
-			triggersTokens = append(triggersTokens, &hclwrite.Token{Type: hclsyntax.TokenIdent, Bytes: []byte("}")})
-			body.SetAttributeRaw(key, triggersTokens)
+		} else {
+			// If there are unquoted values we set them via lower level hclwrite.Token API
+			// the annoying thing is we need to also set all the other attributes for a given key
+			// there is no way to mix/match the cty approach and the hclwrite.Token approach
+			for k := range ctyMap {
+				hclTokens = append(hclTokens, &hclwrite.Token{Type: hclsyntax.TokenIdent, Bytes: []byte("\n")})
+				hclTokens = append(hclTokens, &hclwrite.Token{Type: hclsyntax.TokenIdent, Bytes: []byte(k + ` = `)})
+
+				switch values[k].(type) {
+				case string:
+					hclTokens = append(hclTokens, &hclwrite.Token{Type: hclsyntax.TokenIdent, Bytes: []byte(fmt.Sprintf(`"%s"`, values[k].(string)))})
+				case bool:
+					hclTokens = append(hclTokens, &hclwrite.Token{Type: hclsyntax.TokenIdent, Bytes: []byte(fmt.Sprintf("%t", values[k].(bool)))})
+				case float64:
+					hclTokens = append(hclTokens, &hclwrite.Token{Type: hclsyntax.TokenIdent, Bytes: []byte(fmt.Sprintf("%0.f", values[k].(float64)))})
+				case int:
+					hclTokens = append(hclTokens, &hclwrite.Token{Type: hclsyntax.TokenIdent, Bytes: []byte(fmt.Sprintf("%d", values[k].(int)))})
+				default:
+					log.Panicf("got unknown attribute configuration: key %s, value %v, value type %T", key, values[k], values[k])
+				}
+			}
+
+			hclTokens = append(hclTokens, &hclwrite.Token{Type: hclsyntax.TokenIdent, Bytes: []byte("\n")})
+			hclTokens = append(hclTokens, &hclwrite.Token{Type: hclsyntax.TokenIdent, Bytes: []byte("}")})
+			body.SetAttributeRaw(key, hclTokens)
 		}
 
 	case []interface{}:
@@ -298,7 +309,7 @@ func writeAttrLine(key string, value interface{}, parentName string, body *hclwr
 		items = append(items, value.([]string)...)
 		if len(items) > 0 {
 			// if the key isn't used to link a resource type, we can use the string values
-			if !strIsResourceType(items[0]) {
+			if shouldQuote, _ := strShouldQuote(items[0]); shouldQuote {
 				var vals []cty.Value
 				for _, item := range items {
 					vals = append(vals, cty.StringVal(item))
@@ -308,7 +319,8 @@ func writeAttrLine(key string, value interface{}, parentName string, body *hclwr
 				// otherwise we need to use the raw tokens
 				tokens := []*hclwrite.Token{{Type: hclsyntax.TokenIdent, Bytes: []byte("[\n")}}
 				for _, item := range items {
-					tokens = append(tokens, &hclwrite.Token{Type: hclsyntax.TokenIdent, Bytes: []byte(item + ",\n")})
+					_, itemStr := strShouldQuote(item)
+					tokens = append(tokens, &hclwrite.Token{Type: hclsyntax.TokenIdent, Bytes: []byte(itemStr + ",\n")})
 				}
 				tokens = append(tokens, &hclwrite.Token{Type: hclsyntax.TokenIdent, Bytes: []byte("]")})
 				body.SetAttributeRaw(key, tokens)
