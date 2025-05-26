@@ -113,19 +113,20 @@ func runInteractive(cmd *cobra.Command, args []string) {
 		))
 	}
 
-	// group 2 - Command and resource selection
+	// Command selection group
 	groups = append(groups, huh.NewGroup(
-		// Command selection
 		huh.NewSelect[string]().
 			Title("Select Command").
 			Options(
-				huh.NewOption("Generate both resource configurations and import commands/blocks", "genimport"),
-				huh.NewOption("Generate resources configuration", "generate"),
-				huh.NewOption("Generate import commands/blocks", "import"),
+				huh.NewOption("genimport: Generate both resource configurations and import commands/blocks", "genimport"),
+				huh.NewOption("generate: Generate resources configuration", "generate"),
+				huh.NewOption("import: Generate import commands/blocks", "import"),
 			).
 			Value(&selectedCommand),
+	))
 
-		// Resource types multiselect
+	// Resource types selection group
+	groups = append(groups, huh.NewGroup(
 		huh.NewMultiSelect[string]().
 			Title("Select Resource Types - Use x or space to select/deselect - At least one is required").
 			Options(func() []huh.Option[string] {
@@ -143,22 +144,39 @@ func runInteractive(cmd *cobra.Command, args []string) {
 				}
 				return nil
 			}),
+	))
 
-		// Linked resources multiselect
+	// Exclude resource types group
+	groups = append(groups, huh.NewGroup(
 		huh.NewMultiSelect[string]().
-			Title("Select Resources to Link (dependencies) - Use x or space to select/deselect").
+			Title("Select Resource Types to Exclude - Use x or space to select/deselect - Likely to be used with --resource-types all").
 			Options(func() []huh.Option[string] {
-				opts := make([]huh.Option[string], 0, len(availableResources)+1)
-				opts = append(opts, huh.NewOption("All resources", "all"))
+				opts := make([]huh.Option[string], 0, len(availableResources))
 				for _, r := range availableResources {
 					opts = append(opts, huh.NewOption(r, r))
 				}
 				return opts
 			}()...).
+			Value(&excludeResourceTypes),
+	))
+
+	// Linked resources group
+	groups = append(groups, huh.NewGroup(
+		huh.NewMultiSelect[string]().
+			Title("Select Resources to Link (dependencies) - Use x or space to select/deselect").
+			Options(func() []huh.Option[string] {
+				opts := make([]huh.Option[string], 0, len(availableResources)+2)
+				opts = append(opts, huh.NewOption("All resources", "all"))
+				for _, r := range availableResources {
+					opts = append(opts, huh.NewOption(r, r))
+				}
+				opts = append(opts, huh.NewOption("users_by_email", "users_by_email"))
+				return opts
+			}()...).
 			Value(&selectedLinkedResources),
 	))
 
-	// group 3 - Generate options
+	// Generate options group
 	if !rootCmd.PersistentFlags().Changed("parameterize-jobs") {
 		parameterizeJobs = false
 		groups = append(groups, huh.NewGroup(
@@ -172,7 +190,7 @@ func runInteractive(cmd *cobra.Command, args []string) {
 		}))
 	}
 
-	//  group 4 - Import options
+	//  Import options group
 	if !rootCmd.PersistentFlags().Changed("modern-import-block") {
 		useModernImport = true
 		groups = append(groups, huh.NewGroup(
@@ -243,6 +261,7 @@ func runInteractive(cmd *cobra.Command, args []string) {
 	args = []string{
 		"--resource-types", strings.Join(resourceTypes, ","),
 		"--linked-resource-types", strings.Join(listLinkedResources, ","),
+		"--exclude-resource-types", strings.Join(excludeResourceTypes, ","),
 	}
 	if useModernImportBlock && selectedCommand != "generate" {
 		args = append(args, "--modern-import-block")

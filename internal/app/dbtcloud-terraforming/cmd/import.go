@@ -72,8 +72,23 @@ func runImport() func(cmd *cobra.Command, args []string) {
 			resourceTypes = lo.Keys(resourceImportStringFormats)
 		}
 
+		if len(excludeResourceTypes) > 0 {
+			resourceTypes = lo.Filter(resourceTypes, func(resourceType string, _ int) bool {
+				return !lo.Contains(excludeResourceTypes, resourceType)
+			})
+		}
+
 		importFile := hclwrite.NewEmptyFile()
 		importBody := importFile.Body()
+
+		prefetchedJobs := []any{}
+		resourceNeedingJobs := []string{"dbtcloud_job", "dbtcloud_webhook"}
+		if len(lo.Intersect(resourceTypes, resourceNeedingJobs)) > 0 {
+			prefetchedJobs = dbtCloudClient.GetJobs(listFilterProjects)
+		}
+		prefetchedJobsIDsAny := lo.Map(prefetchedJobs, func(job any, index int) any {
+			return job.(map[string]any)["id"]
+		})
 
 		for _, resourceType := range resourceTypes {
 
@@ -83,10 +98,14 @@ func runImport() func(cmd *cobra.Command, args []string) {
 				jsonStructData = dbtCloudClient.GetProjects(listFilterProjects)
 
 			case "dbtcloud_project_repository":
-				jsonStructData = dbtCloudClient.GetProjects(listFilterProjects)
+				allProjectsRepositories := dbtCloudClient.GetProjects(listFilterProjects)
+				jsonStructData = lo.Filter(allProjectsRepositories, func(project any, idx int) bool {
+					projectTyped := project.(map[string]any)
+					return projectTyped["repository_id"] != nil
+				})
 
 			case "dbtcloud_job":
-				jsonStructData = dbtCloudClient.GetJobs(listFilterProjects)
+				jsonStructData = prefetchedJobs
 
 			case "dbtcloud_environment":
 				jsonStructData = dbtCloudClient.GetEnvironments(listFilterProjects)
@@ -152,7 +171,16 @@ func runImport() func(cmd *cobra.Command, args []string) {
 				jsonStructData = dbtCloudClient.GetUsers()
 
 			case "dbtcloud_webhook":
-				jsonStructData = dbtCloudClient.GetWebhooks()
+				allWebHooks := dbtCloudClient.GetWebhooks()
+				jsonStructData = lo.Filter(allWebHooks, func(webhook any, idx int) bool {
+					webhookTyped := webhook.(map[string]any)
+					listJobIDs := webhookTyped["job_ids"].([]any)
+					if len(listJobIDs) == 0 {
+						// if there is no job defined, then the webhook is for all jobs
+						return true
+					}
+					return len(lo.Intersect(listJobIDs, prefetchedJobsIDsAny)) > 0
+				})
 
 			case "dbtcloud_notification":
 				allNotifications := dbtCloudClient.GetNotifications()
