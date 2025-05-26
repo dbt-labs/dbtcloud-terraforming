@@ -303,7 +303,11 @@ func writeAttrLine(key string, value interface{}, parentName string, body *hclwr
 		for _, i := range value.([]int) {
 			vals = append(vals, cty.NumberIntVal(int64(i)))
 		}
+		if len(vals) > 0 {
 		body.SetAttributeValue(key, cty.ListVal(vals))
+		} else {
+			body.SetAttributeValue(key, cty.ListValEmpty(cty.Number))
+		}
 	case []string:
 		var items []string
 		items = append(items, value.([]string)...)
