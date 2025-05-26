@@ -67,9 +67,6 @@ This tool can be used to load existing dbt Cloud configuration into Terraform. C
 | dbtcloud_user_groups                                      | Account        | ✅                 | ✅               |                       |
 | dbtcloud_webhook                                          | Account        | ✅                 | ✅               |                       |
 
-Notes:
-
-- `dbtcloud_extended_attributes` currently doesn't generate config for nested fields, only top level ones
 
 ## How to use the tool
 
