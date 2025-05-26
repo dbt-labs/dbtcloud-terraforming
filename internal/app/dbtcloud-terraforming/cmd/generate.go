@@ -45,6 +45,7 @@ type tfVar struct {
 }
 
 var AllTFVars = []tfVar{}
+var AllLocals = map[string]string{}
 
 func linkResource(resourceType string) bool {
 	if len(listLinkedResources) == 0 {
@@ -123,7 +124,8 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 		f := hclwrite.NewEmptyFile()
 		rootBody := f.Body()
 
-		// set jobs and projects oustide of the for loop so that we can reference them in other resources
+		// PRE-FETCHING RESOURCES
+		// set some variables like jobs and projects oustide of the for loop so that we can reference them in other resources
 		// and make sure we remove jobs/projects that no longer exist but are still associated with other resources
 
 		// we always get all projects
@@ -145,6 +147,17 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 		prefetchedJobsIDsString := lo.Map(prefetchedJobsIDs, func(jobID int, index int) string {
 			return fmt.Sprintf("%d", jobID)
 		})
+
+		resourceNeedingUsers := []string{"dbtcloud_notification", "dbtcloud_user_groups"}
+		prefetchedUsers := []any{}
+		if len(lo.Intersect(resourceTypes, resourceNeedingUsers)) > 0 {
+			prefetchedUsers = dbtCloudClient.GetUsers()
+		}
+		prefetchedMapUserIDsEmails := make(map[float64]string)
+		for _, user := range prefetchedUsers {
+			userTyped := user.(map[string]any)
+			prefetchedMapUserIDsEmails[userTyped["id"].(float64)] = userTyped["email"].(string)
+		}
 
 		// Process each resource and add to the HCL file
 		for _, resourceType := range resourceTypes {
@@ -715,7 +728,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 							groupPermissionTyped := groupPermission.(map[string]any)
 							if groupPermissionTyped["all_projects"] == false && lo.Contains(prefetchedProjectsIDs, int(groupPermissionTyped["project_id"].(float64))) {
 								groupPermissionTyped["project_id"] = fmt.Sprintf("%sdbtcloud_project.terraform_managed_resource_%0.f.id", prefixNoQuotes, groupPermissionTyped["project_id"].(float64))
-							newGroupPermissionsTyped = append(newGroupPermissionsTyped, groupPermissionTyped)
+								newGroupPermissionsTyped = append(newGroupPermissionsTyped, groupPermissionTyped)
 							}
 						}
 						groupTyped["group_permissions"] = newGroupPermissionsTyped
@@ -733,6 +746,20 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 					userTyped := user.(map[string]any)
 
 					userTyped["user_id"] = userTyped["id"].(float64)
+					if linkResource("dbtcloud_user") {
+						userID := userTyped["user_id"].(float64)
+						userEmail, ok := prefetchedMapUserIDsEmails[userID]
+						if !ok {
+							log.Warnf("User %0.f not found", userID)
+							continue
+						}
+						userTyped["user_id"] = fmt.Sprintf("%slocal.id_group_%s", prefixNoQuotes, slug.Make(userEmail))
+						userTyped["count"] = fmt.Sprintf("%slocal.count_group_%s", prefixNoQuotes, slug.Make(userEmail))
+
+						AllLocals[fmt.Sprintf("details_group_%s", slug.Make(userEmail))] = fmt.Sprintf(`%s[for user in data.dbtcloud_users.all.users : user if user.email == "%s"]`, prefixNoQuotes, userEmail)
+						AllLocals[fmt.Sprintf("count_group_%s", slug.Make(userEmail))] = fmt.Sprintf("%slength(local.%s)", prefixNoQuotes, fmt.Sprintf("details_group_%s", slug.Make(userEmail)))
+						AllLocals[fmt.Sprintf("id_group_%s", slug.Make(userEmail))] = fmt.Sprintf("%slocal.count_group_%s == 1 ? local.details_group_%s[0].id : 0", prefixNoQuotes, slug.Make(userEmail), slug.Make(userEmail))
+					}
 
 					userPermissionsArray := userTyped["permissions"].([]any)
 					userPermissions := userPermissionsArray[0].(map[string]any)
@@ -820,6 +847,21 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 							})
 							notificationTyped[notifHook] = linkedJobIDs
 						}
+					}
+
+					if linkResource("dbtcloud_user") {
+						userID := notificationTyped["user_id"].(float64)
+						userEmail, ok := prefetchedMapUserIDsEmails[userID]
+						if !ok {
+							log.Warnf("User %0.f not found", userID)
+							continue
+						}
+						notificationTyped["user_id"] = fmt.Sprintf("%slocal.id_%s", prefixNoQuotes, slug.Make(userEmail))
+						notificationTyped["count"] = fmt.Sprintf("%slocal.count_%s", prefixNoQuotes, slug.Make(userEmail))
+
+						AllLocals[fmt.Sprintf("details_%s", slug.Make(userEmail))] = fmt.Sprintf(`%s[for user in data.dbtcloud_users.all.users : user if user.email == "%s"]`, prefixNoQuotes, userEmail)
+						AllLocals[fmt.Sprintf("count_%s", slug.Make(userEmail))] = fmt.Sprintf("%slength(local.%s)", prefixNoQuotes, fmt.Sprintf("details_%s", slug.Make(userEmail)))
+						AllLocals[fmt.Sprintf("id_%s", slug.Make(userEmail))] = fmt.Sprintf("%slocal.count_%s == 1 ? local.details_%s[0].id : 0", prefixNoQuotes, slug.Make(userEmail), slug.Make(userEmail))
 					}
 
 					jsonStructData = append(jsonStructData, notificationTyped)
@@ -1100,6 +1142,28 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 				rootBody.AppendNewline()
 			}
 			rootBody.AppendNewline()
+			rootBody.AppendNewline()
+		}
+
+		if len(AllLocals) > 0 {
+
+			dataBlock := rootBody.AppendNewBlock("data", []string{"dbtcloud_users", "all"}).Body()
+			dataBlock.AppendNewline()
+			dataBlock.AppendNewline()
+
+			comment := hclwrite.Tokens{
+				&hclwrite.Token{
+					Type:         hclsyntax.TokenComment,
+					Bytes:        []byte("# The locals used for linking users\n"),
+					SpacesBefore: 0,
+				},
+			}
+			rootBody.AppendUnstructuredTokens(comment)
+			localsBlock := rootBody.AppendNewBlock("locals", nil).Body()
+
+			for key, value := range AllLocals {
+				writeAttrLine(key, value, "", localsBlock)
+			}
 			rootBody.AppendNewline()
 		}
 
