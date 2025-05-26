@@ -922,6 +922,19 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 						delete(configTyped, "project_id")
 					}
 
+					if connectionTyped["private_link_endpoint_id"] != nil {
+						connectionTyped["private_link_endpoint_id"] = fmt.Sprintf("%svar.dbtcloud_global_connection_private_link_endpoint_id_%0.f", prefixNoQuotes, connectionTyped["id"].(float64))
+						varName := fmt.Sprintf("dbtcloud_global_connection_private_link_endpoint_id_%0.f", connectionTyped["id"].(float64))
+						allVarNames := lo.Map(AllTFVars, func(i tfVar, _ int) string { return i.varName })
+						if !lo.Contains(allVarNames, varName) {
+							AllTFVars = append(AllTFVars, tfVar{
+								varType:        "string",
+								varName:        varName,
+								varDescription: "The private link endpoint ID for the global connection " + fmt.Sprintf("%0.f", connectionTyped["id"].(float64)) + " - " + targetURL,
+							})
+						}
+					}
+
 					connectionTyped[configSection] = configTyped
 					jsonStructData = append(jsonStructData, connectionTyped)
 
