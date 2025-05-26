@@ -328,6 +328,20 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 					repositoryTyped := repository.(map[string]any)
 
 					projectID := repositoryTyped["project_id"].(float64)
+					if githubInstallationID, ok := repositoryTyped["github_installation_id"].(float64); ok {
+
+						varName := fmt.Sprintf("dbtcloud_repository_github_installation_id_%0.f", githubInstallationID)
+						// we only add the variable if it doesn't already exist
+						allVarNames := lo.Map(AllTFVars, func(i tfVar, _ int) string { return i.varName })
+						if !lo.Contains(allVarNames, varName) {
+							AllTFVars = append(AllTFVars, tfVar{
+								varType:        "number",
+								varName:        varName,
+								varDescription: "The new GitHub installation ID for the existing installation ID " + fmt.Sprintf("%0.f", githubInstallationID),
+							})
+						}
+						repositoryTyped["github_installation_id"] = fmt.Sprintf("%svar.%s", prefixNoQuotes, varName)
+					}
 					if linkResource("dbtcloud_project") {
 						repositoryTyped["project_id"] = fmt.Sprintf("%sdbtcloud_project.terraform_managed_resource_%0.f.id", prefixNoQuotes, projectID)
 					}
