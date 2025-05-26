@@ -498,9 +498,10 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 
 					projectID := credentialTyped["project_id"].(float64)
 					credentialID := credentialTyped["id"].(float64)
+					environmentID := credentialTyped["environment_id"].(float64)
 					credentialTyped["adapter_type"] = "databricks"
 
-					targetURL := fmt.Sprintf("%s/deploy/%s/projects/%0.f/settings/credentials/", dbtCloudClient.HostURL[:len(dbtCloudClient.HostURL)-4], dbtCloudClient.AccountID, projectID)
+					targetURL := fmt.Sprintf("%s/deploy/%s/projects/%0.f/environments/%0.f/settings/", dbtCloudClient.HostURL[:len(dbtCloudClient.HostURL)-4], dbtCloudClient.AccountID, projectID, environmentID)
 					varName := fmt.Sprintf("dbtcloud_databricks_credential_token_%0.f", credentialID)
 					AllTFVars = append(AllTFVars, tfVar{
 						varType:        "string",
