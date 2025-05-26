@@ -176,7 +176,7 @@ func processBlocks(schemaBlock *tfjson.SchemaBlock, structData map[string]interf
 			if parentBlock == "" && block == "id" {
 				continue
 			}
-			if _, ok := schemaBlock.Attributes[block]; ok && (schemaBlock.Attributes[block].Optional || schemaBlock.Attributes[block].Required) || block == "depends_on" {
+			if _, ok := schemaBlock.Attributes[block]; ok && (schemaBlock.Attributes[block].Optional || schemaBlock.Attributes[block].Required) || block == "depends_on" || block == "count" {
 				writeAttrLine(block, structData[block], parentBlock, parent)
 			}
 		}
@@ -304,7 +304,7 @@ func writeAttrLine(key string, value interface{}, parentName string, body *hclwr
 			vals = append(vals, cty.NumberIntVal(int64(i)))
 		}
 		if len(vals) > 0 {
-		body.SetAttributeValue(key, cty.ListVal(vals))
+			body.SetAttributeValue(key, cty.ListVal(vals))
 		} else {
 			body.SetAttributeValue(key, cty.ListValEmpty(cty.Number))
 		}
