@@ -715,8 +715,8 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 							groupPermissionTyped := groupPermission.(map[string]any)
 							if groupPermissionTyped["all_projects"] == false && lo.Contains(prefetchedProjectsIDs, int(groupPermissionTyped["project_id"].(float64))) {
 								groupPermissionTyped["project_id"] = fmt.Sprintf("%sdbtcloud_project.terraform_managed_resource_%0.f.id", prefixNoQuotes, groupPermissionTyped["project_id"].(float64))
-							}
 							newGroupPermissionsTyped = append(newGroupPermissionsTyped, groupPermissionTyped)
+							}
 						}
 						groupTyped["group_permissions"] = newGroupPermissionsTyped
 
