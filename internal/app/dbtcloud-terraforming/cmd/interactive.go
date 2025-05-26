@@ -165,11 +165,12 @@ func runInteractive(cmd *cobra.Command, args []string) {
 		huh.NewMultiSelect[string]().
 			Title("Select Resources to Link (dependencies) - Use x or space to select/deselect").
 			Options(func() []huh.Option[string] {
-				opts := make([]huh.Option[string], 0, len(availableResources)+1)
+				opts := make([]huh.Option[string], 0, len(availableResources)+2)
 				opts = append(opts, huh.NewOption("All resources", "all"))
 				for _, r := range availableResources {
 					opts = append(opts, huh.NewOption(r, r))
 				}
+				opts = append(opts, huh.NewOption("users_by_email", "users_by_email"))
 				return opts
 			}()...).
 			Value(&selectedLinkedResources),

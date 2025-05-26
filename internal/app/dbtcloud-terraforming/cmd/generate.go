@@ -752,7 +752,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 					userTyped := user.(map[string]any)
 
 					userTyped["user_id"] = userTyped["id"].(float64)
-					if linkResource("dbtcloud_user") {
+					if linkResource("users_by_email") {
 						userID := userTyped["user_id"].(float64)
 						userEmail, ok := prefetchedMapUserIDsEmails[userID]
 						if !ok {
@@ -855,7 +855,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 						}
 					}
 
-					if linkResource("dbtcloud_user") {
+					if linkResource("users_by_email") {
 						userID := notificationTyped["user_id"].(float64)
 						userEmail, ok := prefetchedMapUserIDsEmails[userID]
 						if !ok {
