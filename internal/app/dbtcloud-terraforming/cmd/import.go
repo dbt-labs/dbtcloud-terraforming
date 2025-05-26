@@ -72,6 +72,12 @@ func runImport() func(cmd *cobra.Command, args []string) {
 			resourceTypes = lo.Keys(resourceImportStringFormats)
 		}
 
+		if len(excludeResourceTypes) > 0 {
+			resourceTypes = lo.Filter(resourceTypes, func(resourceType string, _ int) bool {
+				return !lo.Contains(excludeResourceTypes, resourceType)
+			})
+		}
+
 		importFile := hclwrite.NewEmptyFile()
 		importBody := importFile.Body()
 

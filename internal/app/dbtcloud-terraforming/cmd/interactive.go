@@ -144,6 +144,18 @@ func runInteractive(cmd *cobra.Command, args []string) {
 				return nil
 			}),
 
+		// Exclude resource types multiselect
+		huh.NewMultiSelect[string]().
+			Title("Select Resource Types to Exclude - Use x or space to select/deselect - Likely to be used with --resource-types all").
+			Options(func() []huh.Option[string] {
+				opts := make([]huh.Option[string], 0, len(availableResources))
+				for _, r := range availableResources {
+					opts = append(opts, huh.NewOption(r, r))
+				}
+				return opts
+			}()...).
+			Value(&excludeResourceTypes),
+
 		// Linked resources multiselect
 		huh.NewMultiSelect[string]().
 			Title("Select Resources to Link (dependencies) - Use x or space to select/deselect").
@@ -243,6 +255,7 @@ func runInteractive(cmd *cobra.Command, args []string) {
 	args = []string{
 		"--resource-types", strings.Join(resourceTypes, ","),
 		"--linked-resource-types", strings.Join(listLinkedResources, ","),
+		"--exclude-resource-types", strings.Join(excludeResourceTypes, ","),
 	}
 	if useModernImportBlock && selectedCommand != "generate" {
 		args = append(args, "--modern-import-block")

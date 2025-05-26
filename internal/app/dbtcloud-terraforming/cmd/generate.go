@@ -24,7 +24,7 @@ import (
 	"fmt"
 )
 
-var resourceTypes, listLinkedResources []string
+var resourceTypes, listLinkedResources, excludeResourceTypes []string
 var prefixNoQuotes = "~no-quotes~"
 
 func init() {
@@ -70,6 +70,12 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 
 		if len(resourceTypes) == 1 && resourceTypes[0] == "all" {
 			resourceTypes = lo.Keys(resourceImportStringFormats)
+		}
+
+		if len(excludeResourceTypes) > 0 {
+			resourceTypes = lo.Filter(resourceTypes, func(resourceType string, _ int) bool {
+				return !lo.Contains(excludeResourceTypes, resourceType)
+			})
 		}
 
 		listFilterProjects = viper.GetIntSlice("projects")

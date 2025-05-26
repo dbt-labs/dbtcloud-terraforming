@@ -88,6 +88,8 @@ func init() {
 
 	rootCmd.PersistentFlags().StringSliceVar(&resourceTypes, "resource-types", []string{}, "List of resource types you wish to generate. Use `all` to generate all resources")
 
+	rootCmd.PersistentFlags().StringSliceVar(&excludeResourceTypes, "exclude-resource-types", []string{}, "List of resource types you wish to exclude from the generation. To be used with --resource-types all")
+
 	rootCmd.PersistentFlags().StringSliceVar(&listLinkedResources, "linked-resource-types", []string{}, "List of resource types to make dependencies links to instead of using IDs. Can be set to 'all' for linking all resources")
 
 	rootCmd.PersistentFlags().BoolVarP(&useModernImportBlock, "modern-import-block", "", true, "Whether to generate HCL import blocks for generated resources instead of terraform import compatible CLI commands. This is only compatible with Terraform 1.5+.")
