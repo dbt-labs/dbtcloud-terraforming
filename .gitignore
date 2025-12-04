@@ -24,3 +24,7 @@ Makefile
 # terraform files
 .terraform/
 .terraform.lock.hcl
+gtok.tf
+.gitignore
+dbtcloud-terraforming
+gtok_gen.tf

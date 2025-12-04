@@ -168,6 +168,10 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 		// Process each resource and add to the HCL file
 		for _, resourceType := range resourceTypes {
 			r := s.ResourceSchemas[resourceType]
+			if r == nil || r.Block == nil {
+				log.Debugf("skipping %s: resource type not found in provider schema", resourceType)
+				continue
+			}
 			log.Debugf("beginning to read and build %s resources", resourceType)
 
 			// Initialise `resourceCount` outside of the switch for supported resources
