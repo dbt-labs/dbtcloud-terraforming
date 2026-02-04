@@ -413,8 +413,12 @@ func (c *DbtCloudHTTPClient) GetWarehouseCredentials(listProjects []int, warehou
 }
 
 func (c *DbtCloudHTTPClient) GetCredentials(listProjects []int) []any {
-	url := fmt.Sprintf("%s/v3/accounts/%s/credentials/", c.HostURL, c.AccountID)
-	allCredentials := c.GetData(url)
+	allCredentials := []any{}
+	for _, projectID := range listProjects {
+		url := fmt.Sprintf("%s/v3/accounts/%s/projects/%d/credentials/", c.HostURL, c.AccountID, projectID)
+		projectCredentials := c.GetData(url)
+		allCredentials = append(allCredentials, projectCredentials...)
+	}
 
 	// we need to keep only the credentials for active environments
 	allEnvironments := c.GetEnvironments(listProjects)
