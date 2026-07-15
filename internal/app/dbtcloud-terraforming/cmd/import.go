@@ -34,6 +34,9 @@ var resourceImportStringFormats = map[string]string{
 	"dbtcloud_notification":          ":id",
 	"dbtcloud_service_token":         ":id",
 	"dbtcloud_global_connection":     ":id",
+	// account_features is a singleton: there's exactly one instance per account,
+	// keyed by the account id rather than a per-item id.
+	"dbtcloud_account_features": ":id",
 }
 
 func init() {
@@ -195,6 +198,9 @@ func runImport() func(cmd *cobra.Command, args []string) {
 			case "dbtcloud_global_connection":
 				jsonStructData = dbtCloudClient.GetGlobalConnectionsSummary()
 
+			case "dbtcloud_account_features":
+				jsonStructData = dbtCloudClient.GetAccountFeatures()
+
 			default:
 				fmt.Fprintf(cmd.OutOrStderr(), "%q is not yet supported for state import", resourceType)
 				return
@@ -241,6 +247,39 @@ func buildTerraformImportCommand(resourceType, resourceID string, data interface
 	return fmt.Sprintf("%s %s.%s_%s %s\n", terraformImportCmdPrefix, resourceType, terraformResourceNamePrefix, resourceID, resourceImportAddress)
 }
 
+// resolveImportField looks up key in data and formats it the way import string
+// templates expect: numeric ids without a decimal point, strings as-is. If the
+// key is missing, nil, or of an unexpected type, fallback is returned instead -
+// this keeps a broken/missing field visible in the generated import address
+// rather than silently producing an incomplete one.
+//
+// This is the shared resolver behind every non-`:id` composite placeholder
+// (e.g. `:project_id`, `:connection_id`, `:repository_id`, `:name`) used by
+// resourceImportStringFormats, so a template can resolve any field present on
+// the resource's data - whether that's a single numeric id, part of a
+// composite key such as `:project_id::id`, or (via the `:id` placeholder
+// itself, substituted separately in buildRawImportAddress) a singleton keyed
+// by the account id.
+func resolveImportField(data map[string]any, key, fallback string) string {
+	if data == nil {
+		return fallback
+	}
+
+	raw, ok := data[key]
+	if !ok || raw == nil {
+		return fallback
+	}
+
+	switch v := raw.(type) {
+	case float64:
+		return fmt.Sprintf("%0.f", v)
+	case string:
+		return v
+	default:
+		return fallback
+	}
+}
+
 // buildRawImportAddress takes the resourceType and resourceID in order to lookup the
 // resource type import string and then return a suitable composite value that
 // is compatible with `terraform import`.
@@ -249,59 +288,22 @@ func buildRawImportAddress(resourceType, resourceID string, data any) string {
 		log.Fatalf("%s does not have an import format defined", resourceType)
 	}
 
-	var identifierType string
-	var identifierValue string
+	identifierType := "account"
+	identifierValue := accountID
 
-	identifierType = "account"
-	identifierValue = accountID
+	dataTyped, _ := data.(map[string]any)
 
-	connectionIDRaw, ok := data.(map[string]any)["connection_id"]
-	var connectionID string
-	if !ok {
-		connectionID = "no-connection_id"
-	} else {
-		connectionIDFloat, ok := connectionIDRaw.(float64)
-		if !ok {
-			connectionID = "no-connection_id"
-		} else {
-			connectionID = fmt.Sprintf("%0.f", connectionIDFloat)
-		}
-	}
-
-	repositoryIDCasted, ok := data.(map[string]any)["repository_id"].(float64)
-	var repositoryID string
-	if !ok {
-		repositoryID = "no-repository_id"
-	} else {
-		repositoryID = fmt.Sprintf("%0.f", repositoryIDCasted)
-	}
-
-	projectIDRaw, ok := data.(map[string]any)["project_id"]
-	var projectID string
-	if !ok {
-		projectID = "no-project_id"
-	} else {
-		projectID = fmt.Sprintf("%0.f", projectIDRaw.(float64))
-	}
-
-	nameRaw, ok := data.(map[string]any)["name"]
-	var name string
-	if !ok {
-		name = "no-name"
-	} else {
-		name = nameRaw.(string)
-	}
+	connectionID := resolveImportField(dataTyped, "connection_id", "no-connection_id")
+	repositoryID := resolveImportField(dataTyped, "repository_id", "no-repository_id")
+	projectID := resolveImportField(dataTyped, "project_id", "no-project_id")
+	name := resolveImportField(dataTyped, "name", "no-name")
 
 	var userID string
 	if resourceType == "dbtcloud_user_groups" {
-		// for dbtcloud_user_groups, the ID is the user ID
-		userIDRaw, ok := data.(map[string]any)["id"]
-		_ = userIDRaw
-		if !ok {
-			userID = "no-userid"
-		} else {
-			userID = fmt.Sprintf("%0.f", userIDRaw.(float64))
-		}
+		// for dbtcloud_user_groups, the composite id template's :user_id
+		// placeholder resolves against the top-level `id` field (the user id),
+		// not a `user_id` field.
+		userID = resolveImportField(dataTyped, "id", "no-userid")
 	}
 
 	s := resourceImportStringFormats[resourceType]

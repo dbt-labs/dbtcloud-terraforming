@@ -44,6 +44,7 @@ This tool can be used to load existing dbt Cloud configuration into Terraform. C
 
 | Resource                                                  | Resource Scope | Generate Supported | Import Supported | Requires manual setup |
 | --------------------------------------------------------- | -------------- | ------------------ | ---------------- | --------------------- |
+| dbtcloud_account_features                                 | Account        | ✅                 | ✅               |                       |
 | dbtcloud_bigquery_connection (use glob conn if possible)  | Project        | ✅                 | ✅               | 🔒                   |
 | dbtcloud_bigquery_credential                              | Project        | ✅                 | ✅               |                       |
 | dbtcloud_connection (use glob conn if possible)           | Project        | ✅                 | ✅               | 🔒*                  |

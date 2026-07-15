@@ -535,3 +535,58 @@ func (c *DbtCloudHTTPClient) GetGlobalConnections() []any {
 
 	return allConnectionDetails
 }
+
+// accountFeaturesData mirrors the payload returned by the account features
+// endpoint. The JSON keys on the wire use a mix of hyphens and underscores;
+// they get normalized to the underscored attribute names used by the
+// `dbtcloud_account_features` Terraform resource schema when GetAccountFeatures
+// builds its result map below.
+type accountFeaturesData struct {
+	AdvancedCI                 bool `json:"advanced-ci"`
+	PartialParsing             bool `json:"partial-parsing"`
+	RepoCaching                bool `json:"repo-caching"`
+	AIFeatures                 bool `json:"ai_features"`
+	CatalogIngestion           bool `json:"catalog-ingestion"`
+	ExplorerAccountUI          bool `json:"explorer-account-ui"`
+	FusionMigrationPermissions bool `json:"fusion-migration-permissions"`
+}
+
+type accountFeaturesResponse struct {
+	Data accountFeaturesData `json:"data"`
+}
+
+// GetAccountFeatures fetches the account-level feature flags (Advanced CI, AI
+// features, catalog ingestion, etc.) that gate whether certain dbt Cloud
+// resources (e.g. jobs using Advanced CI) can be created in an account.
+//
+// Unlike every other resource in this file, account features are a singleton:
+// there is exactly one set of flags per account rather than a list of items,
+// and the object has no numeric `id` of its own. We return a single-element
+// slice with `id` set to the account id so it fits the same []any shape the
+// rest of the generator/importer code already works with.
+func (c *DbtCloudHTTPClient) GetAccountFeatures() []any {
+	url := fmt.Sprintf("%s/private/accounts/%s/features/", c.HostURL, c.AccountID)
+
+	jsonPayload, err := c.GetEndpoint(url)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	var response accountFeaturesResponse
+	if err := json.Unmarshal(jsonPayload, &response); err != nil {
+		log.Fatal(err)
+	}
+
+	features := map[string]any{
+		"id":                           c.AccountID,
+		"advanced_ci":                  response.Data.AdvancedCI,
+		"partial_parsing":              response.Data.PartialParsing,
+		"repo_caching":                 response.Data.RepoCaching,
+		"ai_features":                  response.Data.AIFeatures,
+		"catalog_ingestion":            response.Data.CatalogIngestion,
+		"explorer_account_ui":          response.Data.ExplorerAccountUI,
+		"fusion_migration_permissions": response.Data.FusionMigrationPermissions,
+	}
+
+	return []any{features}
+}

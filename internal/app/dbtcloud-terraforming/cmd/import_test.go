@@ -16,6 +16,81 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+// TestImport_BuildRawImportAddress locks the generalized import-string
+// builder (resourceImportStringFormats + buildRawImportAddress /
+// resolveImportField) against regressions. It covers:
+//   - (a) an existing numeric-id resource's format is unchanged
+//     (dbtcloud_project, ":id").
+//   - (b) a composite-id template resolves correctly
+//     (dbtcloud_environment, ":project_id::id").
+//   - (c) the new singleton format resolves correctly
+//     (dbtcloud_account_features, ":id" resolved against the account id).
+func TestImport_BuildRawImportAddress(t *testing.T) {
+	origAccountID := accountID
+	defer func() { accountID = origAccountID }()
+	accountID = "9999"
+
+	tests := map[string]struct {
+		resourceType string
+		resourceID   string
+		data         map[string]any
+		want         string
+	}{
+		"existing numeric-id resource (dbtcloud_project) is unchanged": {
+			resourceType: "dbtcloud_project",
+			resourceID:   "123",
+			data:         map[string]any{"id": float64(123)},
+			want:         "123",
+		},
+		"existing composite-id resource (dbtcloud_environment) resolves :project_id::id": {
+			resourceType: "dbtcloud_environment",
+			resourceID:   "456",
+			data:         map[string]any{"id": float64(456), "project_id": float64(71)},
+			want:         "71:456",
+		},
+		"new singleton resource (dbtcloud_account_features) resolves :id to the account id": {
+			resourceType: "dbtcloud_account_features",
+			resourceID:   "9999",
+			data:         map[string]any{"id": "9999"},
+			want:         "9999",
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := buildRawImportAddress(tc.resourceType, tc.resourceID, tc.data)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// TestImport_ResolveImportField covers the shared field resolver extracted
+// from buildRawImportAddress, including the fallback strings that must stay
+// byte-identical to what the previous per-field hardcoded logic produced.
+func TestImport_ResolveImportField(t *testing.T) {
+	tests := map[string]struct {
+		data     map[string]any
+		key      string
+		fallback string
+		want     string
+	}{
+		"numeric field present":     {data: map[string]any{"project_id": float64(71)}, key: "project_id", fallback: "no-project_id", want: "71"},
+		"string field present":      {data: map[string]any{"name": "my-resource"}, key: "name", fallback: "no-name", want: "my-resource"},
+		"field absent":              {data: map[string]any{}, key: "connection_id", fallback: "no-connection_id", want: "no-connection_id"},
+		"field nil":                 {data: map[string]any{"connection_id": nil}, key: "connection_id", fallback: "no-connection_id", want: "no-connection_id"},
+		"field unexpected type":     {data: map[string]any{"repository_id": true}, key: "repository_id", fallback: "no-repository_id", want: "no-repository_id"},
+		"nil data map":              {data: nil, key: "name", fallback: "no-name", want: "no-name"},
+		"user_groups id-as-user_id": {data: map[string]any{"id": float64(42)}, key: "id", fallback: "no-userid", want: "42"},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := resolveImportField(tc.data, tc.key, tc.fallback)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
 func TestResourceImport(t *testing.T) {
 
 	changeExpectedJobs := []string{

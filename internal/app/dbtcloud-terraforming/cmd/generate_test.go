@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 
@@ -93,6 +94,15 @@ func TestResourceGeneration(t *testing.T) {
 		"dbt Cloud projects":     {identifierType: "account", resourceType: "dbtcloud_project", testdataFilename: "dbtcloud_project"},
 		"dbt Cloud jobs":         {identifierType: "account", resourceType: "dbtcloud_job", testdataFilename: "dbtcloud_job"},
 		"dbt Cloud repositories": {identifierType: "account", resourceType: "dbtcloud_repository", testdataFilename: "dbtcloud_repository"},
+		// NOTE: the "dbtcloud_account_features" cassette (testdata/dbtcloud/dbtcloud_account_features.yaml)
+		// has not been recorded yet - recording it requires live account credentials via:
+		//   OVERWRITE_VCR_CASSETTES=true go test ./internal/app/dbtcloud-terraforming/cmd/... \
+		//     -run TestResourceGeneration/dbt_Cloud_account_features -v
+		// Until that cassette exists, this row is scaffolded but will fail if run; see
+		// TestGenerate_ComputeResourceLabel and TestGenerate_AccountFeaturesHCLEmission for
+		// standalone unit coverage of the singleton ID handling and attribute emission in
+		// the meantime.
+		"dbt Cloud account features": {identifierType: "account", resourceType: "dbtcloud_account_features", testdataFilename: "dbtcloud_account_features"},
 	}
 
 	for name, tc := range tests {
@@ -165,4 +175,132 @@ func TestResourceGeneration(t *testing.T) {
 			assert.Equal(t, strings.TrimRight(expected, "\n"), strings.TrimRight(output, "\n"))
 		})
 	}
+}
+
+// TestGenerate_ComputeResourceLabel covers the generalized ID-derivation logic
+// used to label generated `resource "..." "..."` blocks: the existing
+// numeric/string id-based behavior for list-based resources must stay
+// byte-identical, while a non-empty resourceIDOverride must let a resource
+// (e.g. the dbtcloud_account_features singleton) opt out of id-based
+// labelling entirely.
+func TestGenerate_ComputeResourceLabel(t *testing.T) {
+	tests := map[string]struct {
+		resourceType       string
+		structData         map[string]interface{}
+		resourceIDOverride string
+		want               string
+	}{
+		"numeric id, no override (existing behavior, e.g. dbtcloud_project)": {
+			resourceType: "dbtcloud_project",
+			structData:   map[string]interface{}{"id": float64(123)},
+			want:         "terraform_managed_resource_123",
+		},
+		"string id, no override (existing behavior, e.g. dbtcloud_environment_variable)": {
+			resourceType: "dbtcloud_environment_variable",
+			structData:   map[string]interface{}{"id": "71_DBT_ENV"},
+			want:         "terraform_managed_resource_71_DBT_ENV",
+		},
+		"singleton override takes precedence over structData id": {
+			resourceType:       "dbtcloud_account_features",
+			structData:         map[string]interface{}{"id": "1234"},
+			resourceIDOverride: "account_features",
+			want:               "terraform_managed_resource_account_features",
+		},
+		"singleton override with no id in structData at all": {
+			resourceType:       "dbtcloud_account_features",
+			structData:         map[string]interface{}{},
+			resourceIDOverride: "account_features",
+			want:               "terraform_managed_resource_account_features",
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := computeResourceLabel(tc.resourceType, tc.structData, tc.resourceIDOverride)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// TestGenerate_ComputeResourceLabelPanicsOnMissingID locks in the existing
+// panic behavior for resources with no id and no override - this is the
+// pre-existing guard against silently generating an unlabelled resource
+// block, and must keep working for every currently-supported id-keyed
+// resource type.
+func TestGenerate_ComputeResourceLabelPanicsOnMissingID(t *testing.T) {
+	assert.Panics(t, func() {
+		computeResourceLabel("dbtcloud_project", map[string]interface{}{}, "")
+	})
+}
+
+// fabricatedAccountFeaturesPayload mimics the single-element shape returned
+// by dbtCloudClient.GetAccountFeatures(): a singleton object keyed by the
+// account id rather than a per-item numeric id, with boolean feature flags
+// matching the dbtcloud_account_features Terraform resource's attribute
+// names.
+func fabricatedAccountFeaturesPayload() map[string]interface{} {
+	return map[string]interface{}{
+		"id":                           "1234",
+		"advanced_ci":                  true,
+		"partial_parsing":              false,
+		"repo_caching":                 true,
+		"ai_features":                  true,
+		"catalog_ingestion":            false,
+		"explorer_account_ui":          true,
+		"fusion_migration_permissions": false,
+	}
+}
+
+// TestGenerate_AccountFeaturesHCLEmission feeds a fabricated account features
+// payload through the same label-derivation and attribute-emission
+// primitives (computeResourceLabel, writeAttrLine) that generate.go's
+// schema-driven loop uses for every resource, and asserts that the resulting
+// HCL carries the singleton resource label and the expected boolean
+// attributes. This does not require a live account or the Terraform provider
+// schema (see the scaffolded, not-yet-recorded "dbt Cloud account features"
+// row in TestResourceGeneration for full end-to-end coverage once a cassette
+// exists).
+func TestGenerate_AccountFeaturesHCLEmission(t *testing.T) {
+	features := fabricatedAccountFeaturesPayload()
+
+	resourceLabel := computeResourceLabel("dbtcloud_account_features", features, "account_features")
+	assert.Equal(t, "terraform_managed_resource_account_features", resourceLabel)
+
+	f := hclwrite.NewEmptyFile()
+	resource := f.Body().AppendNewBlock("resource", []string{"dbtcloud_account_features", resourceLabel}).Body()
+
+	attrNames := make([]string, 0, len(features))
+	for k := range features {
+		if k == "id" {
+			// id is never emitted as an attribute - it's only used for
+			// import/state purposes, matching every other resource type.
+			continue
+		}
+		attrNames = append(attrNames, k)
+	}
+	sort.Strings(attrNames)
+
+	for _, attrName := range attrNames {
+		writeAttrLine(attrName, features[attrName], "", resource)
+	}
+
+	output := string(f.Bytes())
+
+	assert.Contains(t, output, `resource "dbtcloud_account_features" "terraform_managed_resource_account_features"`)
+	// hclwrite aligns "=" signs to the longest attribute name in the block, so
+	// match on the key/value pair rather than an exact single-space rendering.
+	for _, want := range []string{
+		"advanced_ci",
+		"partial_parsing",
+		"repo_caching",
+		"ai_features",
+		"catalog_ingestion",
+		"explorer_account_ui",
+		"fusion_migration_permissions",
+	} {
+		re := regexp.MustCompile(fmt.Sprintf(`(?m)^\s*%s\s*= (true|false)$`, regexp.QuoteMeta(want)))
+		assert.Regexp(t, re, output, "expected attribute %q to be emitted", want)
+	}
+	assert.True(t, strings.Contains(output, "true") && strings.Contains(output, "false"), "expected both true and false flag values to be emitted")
+	assert.NotRegexp(t, regexp.MustCompile(`(?m)^\s*id\s*=`), output, "the id field must not be emitted as an attribute")
 }

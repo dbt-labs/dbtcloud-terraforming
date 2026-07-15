@@ -54,6 +54,34 @@ func linkResource(resourceType string) bool {
 	return lo.Contains(listLinkedResources, resourceType) || listLinkedResources[0] == "all"
 }
 
+// computeResourceLabel derives the `terraform_managed_resource_<suffix>` label
+// used for a generated `resource "..." "..."` block.
+//
+// If resourceIDOverride is non-empty, it is used directly as the suffix - this
+// is how a resource's `case` above opts a resource out of id-based labelling,
+// which is needed for resources that aren't keyed by a single numeric/string
+// id (e.g. dbtcloud_account_features, a singleton with no per-item id).
+//
+// Otherwise the suffix is derived from structData["id"], exactly as it always
+// has been for every other (list-based, id-keyed) resource type.
+func computeResourceLabel(resourceType string, structData map[string]interface{}, resourceIDOverride string) string {
+	if resourceIDOverride != "" {
+		return fmt.Sprintf("terraform_managed_resource_%s", resourceIDOverride)
+	}
+
+	id := ""
+	switch structData["id"].(type) {
+	case float64:
+		id = fmt.Sprintf("%.0f", structData["id"].(float64))
+	case nil:
+		panic(fmt.Sprintf("There is no `id` defined for the resource %s", resourceType))
+	default:
+		id = structData["id"].(string)
+	}
+
+	return fmt.Sprintf("terraform_managed_resource_%s", id)
+}
+
 func generateResources() func(cmd *cobra.Command, args []string) {
 	return func(cmd *cobra.Command, args []string) {
 		if outputFile != "" {
@@ -178,6 +206,14 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 			// to allow it to be referenced further down in the loop that outputs the
 			// newly generated resources.
 			resourceCount := 0
+
+			// resourceIDOverride lets a `case` below set the resource label used in
+			// the generated `resource "..." "..."` block directly, instead of it being
+			// derived from `structData["id"]`. This is needed for resources that
+			// aren't keyed by a single numeric/string id - e.g. singletons like
+			// dbtcloud_account_features, which have exactly one instance per account
+			// and no `id` field of their own.
+			resourceIDOverride := ""
 
 			var jsonStructData []any
 
@@ -994,6 +1030,15 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 
 				resourceCount = len(jsonStructData)
 
+			// account_features is a singleton: one set of feature flags per account,
+			// not a list of items, so there's no per-item `id` to derive a resource
+			// label from. We label it directly via resourceIDOverride instead.
+			case "dbtcloud_account_features":
+
+				jsonStructData = dbtCloudClient.GetAccountFeatures()
+				resourceCount = len(jsonStructData)
+				resourceIDOverride = "account_features"
+
 			default:
 				fmt.Fprintf(cmd.OutOrStderr(), "%q is not yet supported for automatic generation", resourceType)
 				return
@@ -1012,17 +1057,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 				if os.Getenv("USE_STATIC_RESOURCE_IDS") == "true" {
 					resourceID = "terraform_managed_resource"
 				} else {
-					id := ""
-					switch structData["id"].(type) {
-					case float64:
-						id = fmt.Sprintf("%.0f", structData["id"].(float64))
-					case nil:
-						panic(fmt.Sprintf("There is no `id` defined for the resource %s", resourceType))
-					default:
-						id = structData["id"].(string)
-					}
-
-					resourceID = fmt.Sprintf("terraform_managed_resource_%s", id)
+					resourceID = computeResourceLabel(resourceType, structData, resourceIDOverride)
 				}
 				resource := rootBody.AppendNewBlock("resource", []string{resourceType, resourceID}).Body()
 
