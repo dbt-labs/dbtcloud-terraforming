@@ -217,6 +217,105 @@ func transformProfileForGenerate(profileTyped map[string]any) map[string]any {
 	return profileTyped
 }
 
+// transformJobCompletionTriggerForGenerate builds the jsonStructData entry
+// for a single dbtcloud_job_completion_trigger, from the
+// job_completion_trigger_condition field already present on a dbtcloud_job
+// payload (see the dbtcloud_job case in generateResources(), which parses
+// this same field for its own, separate purposes).
+//
+// It returns (nil, false) when the job carries no completion trigger
+// condition at all, so callers can skip it without generating an empty
+// resource.
+//
+// The real dbtcloud_job_completion_trigger resource schema is flat - job_id
+// (the downstream job this trigger is attached to), trigger_job_id (the
+// upstream job whose completion fires it), project_id, and statuses - with
+// no nested "condition" block, confirmed against the provider's schema
+// source. Its id is just the downstream job's plain numeric id (matching the
+// provider's ImportState, which parses the import id directly as job_id),
+// so no composite-id folding is needed here, unlike
+// transformProfileForGenerate.
+func transformJobCompletionTriggerForGenerate(jobTyped map[string]any) (map[string]any, bool) {
+	jobCompletionTrigger, ok := jobTyped["job_completion_trigger_condition"].(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	condition, ok := jobCompletionTrigger["condition"].(map[string]any)
+	if !ok {
+		return nil, false
+	}
+
+	downstreamJobID := jobTyped["id"].(float64)
+	upstreamProjectID := condition["project_id"].(float64)
+	upstreamJobID := condition["job_id"].(float64)
+
+	triggerData := map[string]any{
+		"id":             downstreamJobID,
+		"job_id":         downstreamJobID,
+		"trigger_job_id": upstreamJobID,
+		"project_id":     upstreamProjectID,
+		"statuses":       mapJobStatusCodeToText(condition["statuses"].([]any)),
+	}
+
+	if linkResource("dbtcloud_job") {
+		triggerData["job_id"] = fmt.Sprintf("%sdbtcloud_job.terraform_managed_resource_%0.f.id", prefixNoQuotes, downstreamJobID)
+		triggerData["trigger_job_id"] = fmt.Sprintf("%sdbtcloud_job.terraform_managed_resource_%0.f.id", prefixNoQuotes, upstreamJobID)
+	}
+	if linkResource("dbtcloud_project") {
+		triggerData["project_id"] = fmt.Sprintf("%sdbtcloud_project.terraform_managed_resource_%0.f.id", prefixNoQuotes, upstreamProjectID)
+	}
+
+	return triggerData, true
+}
+
+// transformEnvironmentVariableJobOverrideForGenerate applies the
+// dbtcloud_environment_variable_job_override-specific generate-time
+// transforms to a single override payload (as returned by
+// GetEnvironmentVariableJobOverrides): it folds project_id/job_definition_id/
+// the override's own numeric id into "id" (mirroring transformProfileForGenerate's
+// approach, since environment_variable_job_override_id is only meaningful
+// together with the project/job scope it lives in), externalizes the value
+// of a secret-named override (DBT_ENV_SECRET_ prefix) to a Terraform
+// variable exactly as the existing dbtcloud_environment_variable case does,
+// and optionally links job_definition_id/project_id to their generated
+// counterparts.
+//
+// It mutates and returns overrideTyped in place, matching the mutate-in-place
+// style used by every other resource transform in this file.
+func transformEnvironmentVariableJobOverrideForGenerate(overrideTyped map[string]any) map[string]any {
+	projectID := overrideTyped["project_id"].(float64)
+	jobDefinitionID := overrideTyped["job_definition_id"].(float64)
+	overrideID := overrideTyped["environment_variable_job_override_id"].(float64)
+	envVarName := overrideTyped["name"].(string)
+
+	overrideTyped["id"] = fmt.Sprintf("%.0f_%.0f_%.0f", projectID, jobDefinitionID, overrideID)
+
+	// mirror the DBT_ENV_SECRET_ externalization pattern used by the
+	// existing dbtcloud_environment_variable case exactly: a secret-named
+	// override's value is registered as a Terraform variable and
+	// substituted with a var.<name> reference instead of being emitted
+	// inline.
+	if strings.HasPrefix(envVarName, "DBT_ENV_SECRET_") {
+		targetURL := fmt.Sprintf("%s/deploy/%s/projects/%.0f/jobs/%.0f/settings/", dbtCloudClient.HostURL[:len(dbtCloudClient.HostURL)-4], dbtCloudClient.AccountID, projectID, jobDefinitionID)
+		varName := fmt.Sprintf("dbtcloud_environment_variable_job_override_%.0f_%.0f_%s", projectID, jobDefinitionID, slug.Make(envVarName))
+		AllTFVars = append(AllTFVars, tfVar{
+			varType:        "string",
+			varName:        varName,
+			varDescription: "The secret env var override for " + envVarName + " on job " + fmt.Sprintf("%.0f", jobDefinitionID) + " in the project " + fmt.Sprintf("%.0f", projectID) + " - " + targetURL,
+		})
+		overrideTyped["raw_value"] = fmt.Sprintf("%svar.%s", prefixNoQuotes, varName)
+	}
+
+	if linkResource("dbtcloud_job") {
+		overrideTyped["job_definition_id"] = fmt.Sprintf("%sdbtcloud_job.terraform_managed_resource_%0.f.id", prefixNoQuotes, jobDefinitionID)
+	}
+	if linkResource("dbtcloud_project") {
+		overrideTyped["project_id"] = fmt.Sprintf("%sdbtcloud_project.terraform_managed_resource_%0.f.id", prefixNoQuotes, projectID)
+	}
+
+	return overrideTyped
+}
+
 func generateResources() func(cmd *cobra.Command, args []string) {
 	return func(cmd *cobra.Command, args []string) {
 		if outputFile != "" {
@@ -305,13 +404,28 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 
 		// we only get jobs if we need them, there might be a lot of them
 		prefetchedJobs := []any{}
-		resourceNeedingJobs := []string{"dbtcloud_job", "dbtcloud_webhook", "dbtcloud_notification"}
+		resourceNeedingJobs := []string{"dbtcloud_job", "dbtcloud_webhook", "dbtcloud_notification", "dbtcloud_job_completion_trigger", "dbtcloud_environment_variable_job_override"}
 		if len(lo.Intersect(resourceTypes, resourceNeedingJobs)) > 0 {
 			prefetchedJobs = dbtCloudClient.GetJobs(listFilterProjects)
 		}
 		prefetchedJobsIDs := lo.Map(prefetchedJobs, func(job any, index int) int {
 			return int(job.(map[string]any)["id"].(float64))
 		})
+
+		// the dbtcloud_job case below mutates each job's own
+		// job_completion_trigger_condition field in place for its own
+		// purposes (jobs and prefetchedJobs share the same underlying map
+		// objects). We extract the completion-trigger data for
+		// dbtcloud_job_completion_trigger here, before that mutation can
+		// happen, so its output doesn't depend on whether/when "dbtcloud_job"
+		// is processed in the same invocation.
+		prefetchedJobCompletionTriggers := []any{}
+		for _, job := range prefetchedJobs {
+			jobTyped := job.(map[string]any)
+			if triggerData, ok := transformJobCompletionTriggerForGenerate(jobTyped); ok {
+				prefetchedJobCompletionTriggers = append(prefetchedJobCompletionTriggers, triggerData)
+			}
+		}
 		// we need this because our API for webhooks returns job IDs as strings
 		prefetchedJobsIDsString := lo.Map(prefetchedJobsIDs, func(jobID int, index int) string {
 			return fmt.Sprintf("%d", jobID)
@@ -1150,6 +1264,43 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 				for _, profile := range listProfiles {
 					profileTyped := profile.(map[string]any)
 					jsonStructData = append(jsonStructData, transformProfileForGenerate(profileTyped))
+				}
+
+				resourceCount = len(jsonStructData)
+
+			// dbtcloud_job_completion_trigger reproduces, as its own
+			// standalone resource, the "run after" relationship that already
+			// rides along on a job's own payload under
+			// job_completion_trigger_condition (see the dbtcloud_job case
+			// above, which already parses this same field for its own
+			// purposes). Per the real provider schema, the standalone
+			// resource's attributes are flat - job_id (the downstream job
+			// this trigger is attached to), trigger_job_id (the upstream job
+			// whose completion fires it), project_id, and statuses - with no
+			// nested "condition" block. Its id is just the downstream job's
+			// plain numeric id (matching the provider's ImportState, which
+			// parses the import id directly as job_id), so no composite-id
+			// folding is needed here, unlike dbtcloud_profile.
+			case "dbtcloud_job_completion_trigger":
+
+				jsonStructData = prefetchedJobCompletionTriggers
+				resourceCount = len(jsonStructData)
+
+			// dbtcloud_environment_variable_job_override's true id
+			// (environment_variable_job_override_id) is only meaningful
+			// together with the project/job scope it lives in, so - exactly
+			// as dbtcloud_profile and dbtcloud_environment_variable already
+			// do above - we fold project_id/job_definition_id/override_id
+			// into structData["id"] for the resource label, while keeping
+			// the plain numeric override id under
+			// "environment_variable_job_override_id" for the import address.
+			case "dbtcloud_environment_variable_job_override":
+
+				listOverrides := dbtCloudClient.GetEnvironmentVariableJobOverrides(listFilterProjects, prefetchedJobs)
+
+				for _, override := range listOverrides {
+					overrideTyped := override.(map[string]any)
+					jsonStructData = append(jsonStructData, transformEnvironmentVariableJobOverrideForGenerate(overrideTyped))
 				}
 
 				resourceCount = len(jsonStructData)

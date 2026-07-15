@@ -51,13 +51,14 @@ This tool can be used to load existing dbt Cloud configuration into Terraform. C
 | dbtcloud_databricks_credential                            | Project        | ✅                 | ✅               | 🔒                    |
 | dbtcloud_environment                                      | Project        | ✅                 | ✅               |                       |
 | dbtcloud_environment_variable                             | Project        | ✅                 | ✅               | 🔒*                  |
-| dbtcloud_environment_variable_job_override                | Project        |                    |                  |                       |
+| dbtcloud_environment_variable_job_override                | Project        | ✅                 | ✅               | 🔒*                  |
 | dbtcloud_extended_attributes(*)                           | Project        | ✅                 | ✅               |                       |
 | dbtcloud_fabric_connection                                | Project        |                    |                  |                       |
 | dbtcloud_fabric_credential                                | Project        |                    |                  | 🔒                   |
 | dbtcloud_global_connection                                | Account        | ✅                 | ✅               | 🔒*                   |
 | dbtcloud_group                                            | Account        | ✅                 | ✅               |                       |
 | dbtcloud_job                                              | Project        | ✅                 | ✅               |                       |
+| dbtcloud_job_completion_trigger                           | Project        | ✅                 | ✅               |                       |
 | dbtcloud_license_map                                      | Account        |                    |                  |                       |
 | dbtcloud_notification                                     | Account        | ✅                 | ✅               |                       |
 | dbtcloud_postgres_credential                              | Project        |                    |                  | 🔒*                  |

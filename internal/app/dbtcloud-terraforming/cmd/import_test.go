@@ -60,6 +60,23 @@ func TestImport_BuildRawImportAddress(t *testing.T) {
 			data:         map[string]any{"id": "5_10", "project_id": float64(5), "profile_id": float64(10)},
 			want:         "5:10",
 		},
+		"new job-id-only resource (dbtcloud_job_completion_trigger) resolves :id to the downstream job id": {
+			resourceType: "dbtcloud_job_completion_trigger",
+			resourceID:   "456",
+			data:         map[string]any{"id": float64(456)},
+			want:         "456",
+		},
+		"new 3-part composite resource (dbtcloud_environment_variable_job_override) resolves :project_id::job_definition_id::environment_variable_job_override_id": {
+			resourceType: "dbtcloud_environment_variable_job_override",
+			resourceID:   "71_456_789",
+			data: map[string]any{
+				"id":                                   "71_456_789",
+				"project_id":                           float64(71),
+				"job_definition_id":                    float64(456),
+				"environment_variable_job_override_id": float64(789),
+			},
+			want: "71:456:789",
+		},
 	}
 
 	for name, tc := range tests {
@@ -80,14 +97,16 @@ func TestImport_ResolveImportField(t *testing.T) {
 		fallback string
 		want     string
 	}{
-		"numeric field present":     {data: map[string]any{"project_id": float64(71)}, key: "project_id", fallback: "no-project_id", want: "71"},
-		"string field present":      {data: map[string]any{"name": "my-resource"}, key: "name", fallback: "no-name", want: "my-resource"},
-		"field absent":              {data: map[string]any{}, key: "connection_id", fallback: "no-connection_id", want: "no-connection_id"},
-		"field nil":                 {data: map[string]any{"connection_id": nil}, key: "connection_id", fallback: "no-connection_id", want: "no-connection_id"},
-		"field unexpected type":     {data: map[string]any{"repository_id": true}, key: "repository_id", fallback: "no-repository_id", want: "no-repository_id"},
-		"nil data map":              {data: nil, key: "name", fallback: "no-name", want: "no-name"},
-		"user_groups id-as-user_id": {data: map[string]any{"id": float64(42)}, key: "id", fallback: "no-userid", want: "42"},
-		"profile_id field present":  {data: map[string]any{"profile_id": float64(10)}, key: "profile_id", fallback: "no-profile_id", want: "10"},
+		"numeric field present":           {data: map[string]any{"project_id": float64(71)}, key: "project_id", fallback: "no-project_id", want: "71"},
+		"string field present":            {data: map[string]any{"name": "my-resource"}, key: "name", fallback: "no-name", want: "my-resource"},
+		"field absent":                    {data: map[string]any{}, key: "connection_id", fallback: "no-connection_id", want: "no-connection_id"},
+		"field nil":                       {data: map[string]any{"connection_id": nil}, key: "connection_id", fallback: "no-connection_id", want: "no-connection_id"},
+		"field unexpected type":           {data: map[string]any{"repository_id": true}, key: "repository_id", fallback: "no-repository_id", want: "no-repository_id"},
+		"nil data map":                    {data: nil, key: "name", fallback: "no-name", want: "no-name"},
+		"user_groups id-as-user_id":       {data: map[string]any{"id": float64(42)}, key: "id", fallback: "no-userid", want: "42"},
+		"profile_id field present":        {data: map[string]any{"profile_id": float64(10)}, key: "profile_id", fallback: "no-profile_id", want: "10"},
+		"job_definition_id field present": {data: map[string]any{"job_definition_id": float64(456)}, key: "job_definition_id", fallback: "no-job_definition_id", want: "456"},
+		"environment_variable_job_override_id field present": {data: map[string]any{"environment_variable_job_override_id": float64(789)}, key: "environment_variable_job_override_id", fallback: "no-environment_variable_job_override_id", want: "789"},
 	}
 
 	for name, tc := range tests {

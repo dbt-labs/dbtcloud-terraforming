@@ -112,6 +112,28 @@ func TestResourceGeneration(t *testing.T) {
 		// standalone unit coverage of the composite ID handling and attribute emission in
 		// the meantime.
 		"dbt Cloud profiles": {identifierType: "account", resourceType: "dbtcloud_profile", testdataFilename: "dbtcloud_profile"},
+		// NOTE: the "dbtcloud_job_completion_trigger" cassette (testdata/dbtcloud/dbtcloud_job_completion_trigger_resource.yaml)
+		// has not been recorded yet - recording it requires a live account with at
+		// least one job with a completion trigger configured, via:
+		//   OVERWRITE_VCR_CASSETTES=true go test ./internal/app/dbtcloud-terraforming/cmd/... \
+		//     -run TestResourceGeneration/dbt_Cloud_job_completion_triggers -v
+		// Until that cassette exists, this row is scaffolded but will fail if run; see
+		// TestGenerate_TransformJobCompletionTriggerForGenerate and
+		// TestGenerate_JobCompletionTriggerHCLEmission for standalone unit coverage of the
+		// trigger extraction, status mapping, and attribute emission in the meantime.
+		"dbt Cloud job completion triggers": {identifierType: "account", resourceType: "dbtcloud_job_completion_trigger", testdataFilename: "dbtcloud_job_completion_trigger_resource"},
+		// NOTE: the "dbtcloud_environment_variable_job_override" cassette
+		// (testdata/dbtcloud/dbtcloud_environment_variable_job_override.yaml) has not been
+		// recorded yet - recording it requires a live account with at least one job-level
+		// environment variable override configured, via:
+		//   OVERWRITE_VCR_CASSETTES=true go test ./internal/app/dbtcloud-terraforming/cmd/... \
+		//     -run TestResourceGeneration/dbt_Cloud_environment_variable_job_overrides -v
+		// Until that cassette exists, this row is scaffolded but will fail if run; see
+		// TestGenerate_TransformEnvironmentVariableJobOverrideForGenerate and
+		// TestGenerate_EnvironmentVariableJobOverrideHCLEmission for standalone unit coverage
+		// of the composite ID handling, secret externalization, and attribute emission in the
+		// meantime.
+		"dbt Cloud environment variable job overrides": {identifierType: "account", resourceType: "dbtcloud_environment_variable_job_override", testdataFilename: "dbtcloud_environment_variable_job_override"},
 	}
 
 	for name, tc := range tests {
@@ -479,5 +501,236 @@ func TestGenerate_TransformEnvironmentForGenerate_EitherOr(t *testing.T) {
 		assert.Equal(t, float64(20), got["connection_id"])
 		assert.Equal(t, float64(30), got["credential_id"], "credentials_id is renamed to credential_id, matching pre-existing behavior")
 		assert.Equal(t, float64(40), got["extended_attributes_id"])
+	})
+}
+
+// fabricatedJobWithCompletionTriggerPayload mimics a single element of the
+// []any returned by dbtCloudClient.GetJobs(): a job whose
+// job_completion_trigger_condition field (already parsed by the existing
+// dbtcloud_job case, for its own separate purposes) carries the "run after"
+// relationship dbtcloud_job_completion_trigger reproduces as a standalone
+// resource. withCondition controls whether the condition is present at all,
+// matching jobs that have no completion trigger configured.
+func fabricatedJobWithCompletionTriggerPayload(withCondition bool) map[string]any {
+	job := map[string]any{
+		"id":         float64(456),
+		"project_id": float64(71),
+	}
+	if withCondition {
+		job["job_completion_trigger_condition"] = map[string]any{
+			"condition": map[string]any{
+				"job_id":     float64(123),
+				"project_id": float64(99),
+				"statuses":   []any{float64(10), float64(20)},
+			},
+		}
+	}
+	return job
+}
+
+// TestGenerate_TransformJobCompletionTriggerForGenerate covers the
+// dbtcloud_job_completion_trigger extraction from a job's own payload: a job
+// with no completion trigger condition must be skipped entirely (ok=false),
+// the numeric status codes on the condition must be mapped to their text
+// equivalents via mapJobStatusCodeToText rather than left as raw codes, and
+// job_id/trigger_job_id must only become linked references when the
+// corresponding resource type is in --linked-resource-types.
+func TestGenerate_TransformJobCompletionTriggerForGenerate(t *testing.T) {
+	t.Run("job with no completion trigger condition is skipped", func(t *testing.T) {
+		job := fabricatedJobWithCompletionTriggerPayload(false)
+		_, ok := transformJobCompletionTriggerForGenerate(job)
+		assert.False(t, ok)
+	})
+
+	t.Run("no linking: statuses are mapped to text, ids stay numeric", func(t *testing.T) {
+		job := fabricatedJobWithCompletionTriggerPayload(true)
+		got, ok := transformJobCompletionTriggerForGenerate(job)
+		assert.True(t, ok)
+
+		assert.Equal(t, float64(456), got["id"], "id is the downstream job's own plain numeric id")
+		assert.Equal(t, float64(456), got["job_id"])
+		assert.Equal(t, float64(123), got["trigger_job_id"])
+		assert.Equal(t, float64(99), got["project_id"])
+		assert.Equal(t, []string{"success", "error"}, got["statuses"], "numeric status codes must be mapped to text, not left raw")
+	})
+
+	t.Run("linking dbtcloud_job and dbtcloud_project rewrites references", func(t *testing.T) {
+		withLinkedResources(t, []string{"dbtcloud_job", "dbtcloud_project"})
+
+		job := fabricatedJobWithCompletionTriggerPayload(true)
+		got, ok := transformJobCompletionTriggerForGenerate(job)
+		assert.True(t, ok)
+
+		assert.Contains(t, got["job_id"], "dbtcloud_job.terraform_managed_resource_456.id", "job_id links to the downstream job")
+		assert.Contains(t, got["trigger_job_id"], "dbtcloud_job.terraform_managed_resource_123.id", "trigger_job_id links to the upstream job")
+		assert.Contains(t, got["project_id"], "dbtcloud_project.terraform_managed_resource_99.id")
+	})
+}
+
+// TestGenerate_JobCompletionTriggerHCLEmission feeds a fabricated
+// job-with-trigger payload through the same label-derivation and
+// attribute-emission primitives (computeResourceLabel, writeAttrLine) that
+// generate.go's schema-driven loop uses for every resource, and asserts that
+// the resulting HCL carries the flat job_id/trigger_job_id/project_id/
+// statuses attributes (mapped to text status strings, not numeric codes)
+// confirmed against the real provider schema - and that job_id/
+// trigger_job_id are linked when linking is on.
+func TestGenerate_JobCompletionTriggerHCLEmission(t *testing.T) {
+	withLinkedResources(t, []string{"dbtcloud_job"})
+
+	job := fabricatedJobWithCompletionTriggerPayload(true)
+	trigger, ok := transformJobCompletionTriggerForGenerate(job)
+	assert.True(t, ok)
+
+	resourceLabel := computeResourceLabel("dbtcloud_job_completion_trigger", trigger, "")
+	assert.Equal(t, "terraform_managed_resource_456", resourceLabel)
+
+	f := hclwrite.NewEmptyFile()
+	resource := f.Body().AppendNewBlock("resource", []string{"dbtcloud_job_completion_trigger", resourceLabel}).Body()
+
+	for _, attrName := range []string{"job_id", "trigger_job_id", "project_id", "statuses"} {
+		writeAttrLine(attrName, trigger[attrName], "", resource)
+	}
+
+	output := string(f.Bytes())
+
+	assert.Contains(t, output, `resource "dbtcloud_job_completion_trigger" "terraform_managed_resource_456"`)
+	assert.Contains(t, output, "dbtcloud_job.terraform_managed_resource_456.id", "job_id must be linked to the downstream job")
+	assert.Contains(t, output, "dbtcloud_job.terraform_managed_resource_123.id", "trigger_job_id must be linked to the upstream job")
+	assert.Contains(t, output, `"success"`)
+	assert.Contains(t, output, `"error"`)
+	assert.NotContains(t, output, "10", "the raw numeric status code must not leak into the output")
+	assert.NotRegexp(t, regexp.MustCompile(`(?m)^\s*condition\s*\{`), output, "the real provider schema has no nested condition block")
+}
+
+// fabricatedEnvVarJobOverridePayload mimics a single element of the []any
+// returned by dbtCloudClient.GetEnvironmentVariableJobOverrides(): a
+// job-scoped environment variable override. name controls whether the
+// override matches the DBT_ENV_SECRET_ convention that must externalize its
+// value to a Terraform variable.
+func fabricatedEnvVarJobOverridePayload(name string) map[string]any {
+	return map[string]any{
+		"name":                                 name,
+		"project_id":                           float64(71),
+		"job_definition_id":                    float64(456),
+		"environment_variable_job_override_id": float64(789),
+		"raw_value":                            "my-value",
+	}
+}
+
+// TestGenerate_TransformEnvironmentVariableJobOverrideForGenerate covers the
+// dbtcloud_environment_variable_job_override generate-time transform: the
+// composite id folding (project_id/job_definition_id/override_id into "id")
+// must happen regardless of linking or secrecy, a non-secret-named
+// override's raw_value must stay literal, a DBT_ENV_SECRET_-named override's
+// raw_value must be externalized to a var.* reference and registered in
+// AllTFVars, and job_definition_id/project_id must only become linked
+// references when the corresponding resource type is in
+// --linked-resource-types.
+func TestGenerate_TransformEnvironmentVariableJobOverrideForGenerate(t *testing.T) {
+	origTFVars := AllTFVars
+	origClient := dbtCloudClient
+	// the secret-externalization branch builds a "manage this in the UI"
+	// target URL off dbtCloudClient.HostURL/AccountID, exactly like the
+	// existing dbtcloud_environment_variable case does - so, like that code,
+	// it needs a non-nil client even outside of a full generate run.
+	dbtCloudClient = dbtcloud.NewDbtCloudHTTPClient("https://cloud.getdbt.com/api", "token", "9999", nil)
+	t.Cleanup(func() {
+		AllTFVars = origTFVars
+		dbtCloudClient = origClient
+	})
+
+	t.Run("no linking, non-secret name: id is folded, raw_value stays literal", func(t *testing.T) {
+		AllTFVars = []tfVar{}
+		override := fabricatedEnvVarJobOverridePayload("MY_PLAIN_VAR")
+		got := transformEnvironmentVariableJobOverrideForGenerate(override)
+
+		assert.Equal(t, "71_456_789", got["id"])
+		assert.Equal(t, float64(71), got["project_id"])
+		assert.Equal(t, float64(456), got["job_definition_id"])
+		assert.Equal(t, "my-value", got["raw_value"], "a non-secret-named override keeps its literal value inline")
+		assert.Empty(t, AllTFVars, "no Terraform variable should be registered for a non-secret override")
+	})
+
+	t.Run("secret name: raw_value is externalized to a var.* reference", func(t *testing.T) {
+		AllTFVars = []tfVar{}
+		override := fabricatedEnvVarJobOverridePayload("DBT_ENV_SECRET_TOKEN")
+		got := transformEnvironmentVariableJobOverrideForGenerate(override)
+
+		assert.Equal(t, "71_456_789", got["id"], "the composite id must still be folded for a secret-named override")
+		assert.Contains(t, got["raw_value"], "var.", "a secret-named override's value must be externalized")
+		assert.NotContains(t, got["raw_value"], "my-value", "the literal secret value must not leak into the output")
+		assert.Len(t, AllTFVars, 1, "exactly one Terraform variable must be registered for the secret override")
+		assert.Contains(t, got["raw_value"], AllTFVars[0].varName)
+	})
+
+	t.Run("linking dbtcloud_job and dbtcloud_project rewrites references", func(t *testing.T) {
+		AllTFVars = []tfVar{}
+		withLinkedResources(t, []string{"dbtcloud_job", "dbtcloud_project"})
+
+		override := fabricatedEnvVarJobOverridePayload("MY_PLAIN_VAR")
+		got := transformEnvironmentVariableJobOverrideForGenerate(override)
+
+		assert.Equal(t, "71_456_789", got["id"], "the composite id must still be derived from the original numeric ids")
+		assert.Contains(t, got["job_definition_id"], "dbtcloud_job.terraform_managed_resource_456.id")
+		assert.Contains(t, got["project_id"], "dbtcloud_project.terraform_managed_resource_71.id")
+	})
+}
+
+// TestGenerate_EnvironmentVariableJobOverrideHCLEmission feeds fabricated
+// override payloads through the same label-derivation and attribute-emission
+// primitives (computeResourceLabel, writeAttrLine) that generate.go's
+// schema-driven loop uses for every resource, and asserts the resulting HCL
+// carries the project-scoped composite label, a linked job_definition_id,
+// and - critically - that a secret-named override's raw_value is a var.*
+// reference in the output while a non-secret-named override's raw_value
+// stays a literal string.
+func TestGenerate_EnvironmentVariableJobOverrideHCLEmission(t *testing.T) {
+	origTFVars := AllTFVars
+	origClient := dbtCloudClient
+	dbtCloudClient = dbtcloud.NewDbtCloudHTTPClient("https://cloud.getdbt.com/api", "token", "9999", nil)
+	t.Cleanup(func() {
+		AllTFVars = origTFVars
+		dbtCloudClient = origClient
+	})
+
+	t.Run("non-secret override emits the literal value", func(t *testing.T) {
+		AllTFVars = []tfVar{}
+		withLinkedResources(t, []string{"dbtcloud_job"})
+
+		override := transformEnvironmentVariableJobOverrideForGenerate(fabricatedEnvVarJobOverridePayload("MY_PLAIN_VAR"))
+
+		resourceLabel := computeResourceLabel("dbtcloud_environment_variable_job_override", override, "")
+		assert.Equal(t, "terraform_managed_resource_71_456_789", resourceLabel)
+
+		f := hclwrite.NewEmptyFile()
+		resource := f.Body().AppendNewBlock("resource", []string{"dbtcloud_environment_variable_job_override", resourceLabel}).Body()
+		for _, attrName := range []string{"name", "project_id", "job_definition_id", "raw_value"} {
+			writeAttrLine(attrName, override[attrName], "", resource)
+		}
+
+		output := string(f.Bytes())
+		assert.Contains(t, output, `resource "dbtcloud_environment_variable_job_override" "terraform_managed_resource_71_456_789"`)
+		assert.Contains(t, output, "dbtcloud_job.terraform_managed_resource_456.id")
+		assert.Contains(t, output, `"my-value"`, "a non-secret-named override's value must be emitted literally")
+	})
+
+	t.Run("secret override emits a var.* reference instead of the literal value", func(t *testing.T) {
+		AllTFVars = []tfVar{}
+		withLinkedResources(t, []string{"dbtcloud_job"})
+
+		override := transformEnvironmentVariableJobOverrideForGenerate(fabricatedEnvVarJobOverridePayload("DBT_ENV_SECRET_TOKEN"))
+
+		resourceLabel := computeResourceLabel("dbtcloud_environment_variable_job_override", override, "")
+
+		f := hclwrite.NewEmptyFile()
+		resource := f.Body().AppendNewBlock("resource", []string{"dbtcloud_environment_variable_job_override", resourceLabel}).Body()
+		for _, attrName := range []string{"name", "project_id", "job_definition_id", "raw_value"} {
+			writeAttrLine(attrName, override[attrName], "", resource)
+		}
+
+		output := string(f.Bytes())
+		assert.Contains(t, output, "var.", "a secret-named override's value must be a var.* reference in the output")
+		assert.NotContains(t, output, `"my-value"`, "the literal secret value must never be emitted")
 	})
 }

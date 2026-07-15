@@ -536,6 +536,111 @@ func (c *DbtCloudHTTPClient) GetGlobalConnections() []any {
 	return allConnectionDetails
 }
 
+// EnvVarJobOverrideResponse mirrors the response envelope returned by the
+// job-scoped environment-variable override endpoint
+// (/v3/accounts/{account}/projects/{project}/environment-variables/job/?job_definition_id={job}).
+// Unlike the environment-scoped endpoint (see EnvVarResponse/EnvVarData
+// above), this endpoint's "data" is a flat map of env var name -> per-scope
+// override details (e.g. {"account": {...}, "environment": {...}, "job":
+// {...}}), with no intermediate "variables" wrapper.
+type EnvVarJobOverrideResponse struct {
+	Data map[string]any `json:"data"`
+}
+
+func (c *DbtCloudHTTPClient) GetDataEnvVarJobOverrides(url string) map[string]any {
+
+	jsonPayload, err := c.GetEndpoint(url)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	var response EnvVarJobOverrideResponse
+
+	err = json.Unmarshal(jsonPayload, &response)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	return response.Data
+}
+
+// GetEnvironmentVariableJobOverrides fetches per-job environment-variable
+// value overrides for the given jobs (typically the already-prefetched jobs
+// list generate.go/import.go build for other job-scoped resources), scoped
+// to listProjects.
+//
+// The override data doesn't live behind an account- or project-wide "list
+// all overrides" endpoint - it's only queryable per job_definition_id (see
+// GetEnvironmentVariableJobOverride in the provider's own client, which takes
+// a job_definition_id query param) - so we loop through the known jobs for
+// each project and query per job, mirroring the per-project-then-per-item
+// fetch pattern GetProfiles already uses above.
+//
+// Each returned item is a flattened map with "name" (the env var name),
+// "project_id", "job_definition_id", "environment_variable_job_override_id"
+// (the override's own numeric id - present so callers can fold a
+// project/job/override composite into a unique resource id, exactly as
+// GetProfiles's callers do for profile_id), and "raw_value" (the override's
+// value, matching the dbtcloud_environment_variable_job_override resource's
+// own attribute name).
+func (c *DbtCloudHTTPClient) GetEnvironmentVariableJobOverrides(listProjects []int, jobs []any) []any {
+	allOverrides := []any{}
+
+	jobIDsByProject := map[int][]int{}
+	for _, job := range jobs {
+		jobTyped := job.(map[string]any)
+		jobID := int(jobTyped["id"].(float64))
+		projectID := int(jobTyped["project_id"].(float64))
+		jobIDsByProject[projectID] = append(jobIDsByProject[projectID], jobID)
+	}
+
+	for projectID, jobIDs := range jobIDsByProject {
+		if len(listProjects) > 0 && !lo.Contains(listProjects, projectID) {
+			continue
+		}
+
+		for _, jobID := range jobIDs {
+			url := fmt.Sprintf("%s/v3/accounts/%s/projects/%d/environment-variables/job/?job_definition_id=%d", c.HostURL, c.AccountID, projectID, jobID)
+			jobOverrides := c.GetDataEnvVarJobOverrides(url)
+
+			for envVarName, value := range jobOverrides {
+				// "project" is a pseudo-key returned alongside the per-variable
+				// entries on the environment-scoped endpoint (see
+				// GetEnvironmentVariables); we haven't observed it here but skip
+				// it defensively for the same reason.
+				if envVarName == "project" {
+					continue
+				}
+
+				valueTyped, ok := value.(map[string]any)
+				if !ok {
+					continue
+				}
+
+				jobOverrideTyped, ok := valueTyped["job"].(map[string]any)
+				if !ok || jobOverrideTyped == nil {
+					// this env var has no job-level override for this job - only
+					// account/environment-level values, which aren't this
+					// resource's concern.
+					continue
+				}
+
+				overrideValue, _ := jobOverrideTyped["value"].(string)
+
+				allOverrides = append(allOverrides, map[string]any{
+					"name":                                 envVarName,
+					"project_id":                           float64(projectID),
+					"job_definition_id":                    float64(jobID),
+					"environment_variable_job_override_id": jobOverrideTyped["id"],
+					"raw_value":                            overrideValue,
+				})
+			}
+		}
+	}
+
+	return allOverrides
+}
+
 // accountFeaturesData mirrors the payload returned by the account features
 // endpoint. The JSON keys on the wire use a mix of hyphens and underscores;
 // they get normalized to the underscored attribute names used by the

@@ -44,6 +44,20 @@ var resourceImportStringFormats = map[string]string{
 	// dbtcloud_profile case in generate.go and GetProfiles in api.go), so we
 	// resolve against the separate numeric "profile_id" field instead.
 	"dbtcloud_profile": ":project_id::profile_id",
+	// dbtcloud_job_completion_trigger's own id is just the plain numeric id
+	// of the downstream job it's attached to (matching the provider's
+	// ImportState, which parses the import id directly as job_id) - no
+	// composite folding needed, unlike dbtcloud_profile.
+	"dbtcloud_job_completion_trigger": ":id",
+	// dbtcloud_environment_variable_job_override's real import id is
+	// project_id:job_definition_id:environment_variable_job_override_id (per
+	// the provider's ImportState). Its resource id is folded (project_id,
+	// job_definition_id, and the override id all baked into "id", see the
+	// dbtcloud_environment_variable_job_override case in generate.go), so -
+	// exactly like dbtcloud_profile's ":profile_id" - we resolve the last
+	// segment against the separate numeric
+	// "environment_variable_job_override_id" field instead of ":id".
+	"dbtcloud_environment_variable_job_override": ":project_id::job_definition_id::environment_variable_job_override_id",
 }
 
 func init() {
@@ -92,7 +106,7 @@ func runImport() func(cmd *cobra.Command, args []string) {
 		importBody := importFile.Body()
 
 		prefetchedJobs := []any{}
-		resourceNeedingJobs := []string{"dbtcloud_job", "dbtcloud_webhook"}
+		resourceNeedingJobs := []string{"dbtcloud_job", "dbtcloud_webhook", "dbtcloud_job_completion_trigger", "dbtcloud_environment_variable_job_override"}
 		if len(lo.Intersect(resourceTypes, resourceNeedingJobs)) > 0 {
 			prefetchedJobs = dbtCloudClient.GetJobs(listFilterProjects)
 		}
@@ -231,6 +245,45 @@ func runImport() func(cmd *cobra.Command, args []string) {
 				}
 				jsonStructData = listImportProfiles
 
+			case "dbtcloud_job_completion_trigger":
+				listImportTriggers := []any{}
+				for _, job := range prefetchedJobs {
+					jobTyped := job.(map[string]any)
+					if _, ok := jobTyped["job_completion_trigger_condition"].(map[string]any); !ok {
+						continue
+					}
+					// the resource's own id is just the downstream job's
+					// plain numeric id - see the format entry above.
+					listImportTriggers = append(listImportTriggers, map[string]any{
+						"id": jobTyped["id"],
+					})
+				}
+				jsonStructData = listImportTriggers
+
+			case "dbtcloud_environment_variable_job_override":
+				listOverrides := dbtCloudClient.GetEnvironmentVariableJobOverrides(listFilterProjects, prefetchedJobs)
+
+				listImportOverrides := []any{}
+				for _, override := range listOverrides {
+					overrideTyped := override.(map[string]any)
+
+					projectID := overrideTyped["project_id"].(float64)
+					jobDefinitionID := overrideTyped["job_definition_id"].(float64)
+					overrideID := overrideTyped["environment_variable_job_override_id"].(float64)
+
+					// fold project_id/job_definition_id/override_id into "id"
+					// to get a resource address matching the label generate.go
+					// produces for the same override - exactly as
+					// dbtcloud_profile's import case does above - while
+					// keeping the plain numeric override id available for the
+					// ":environment_variable_job_override_id" placeholder used
+					// by the composite import address template above.
+					overrideTyped["id"] = fmt.Sprintf("%.0f_%.0f_%.0f", projectID, jobDefinitionID, overrideID)
+
+					listImportOverrides = append(listImportOverrides, overrideTyped)
+				}
+				jsonStructData = listImportOverrides
+
 			default:
 				fmt.Fprintf(cmd.OutOrStderr(), "%q is not yet supported for state import", resourceType)
 				return
@@ -328,6 +381,8 @@ func buildRawImportAddress(resourceType, resourceID string, data any) string {
 	projectID := resolveImportField(dataTyped, "project_id", "no-project_id")
 	profileID := resolveImportField(dataTyped, "profile_id", "no-profile_id")
 	name := resolveImportField(dataTyped, "name", "no-name")
+	jobDefinitionID := resolveImportField(dataTyped, "job_definition_id", "no-job_definition_id")
+	environmentVariableJobOverrideID := resolveImportField(dataTyped, "environment_variable_job_override_id", "no-environment_variable_job_override_id")
 
 	var userID string
 	if resourceType == "dbtcloud_user_groups" {
@@ -350,6 +405,8 @@ func buildRawImportAddress(resourceType, resourceID string, data any) string {
 		":profile_id", profileID,
 		":name", name,
 		":user_id", userID,
+		":job_definition_id", jobDefinitionID,
+		":environment_variable_job_override_id", environmentVariableJobOverrideID,
 	)
 
 	return replacer.Replace(s)
