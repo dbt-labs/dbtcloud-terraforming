@@ -47,6 +47,52 @@ type tfVar struct {
 var AllTFVars = []tfVar{}
 var AllLocals = map[string]string{}
 
+// defaultGroups are the built-in dbt platform groups that are never generated
+// as dbtcloud_group resources (their membership is managed by dbt platform
+// itself, not Terraform). Any other resource that references groups (e.g.
+// dbtcloud_user_groups) must exclude these from its output to avoid dangling
+// references to resources that are never created.
+var defaultGroups = []string{"Owner", "Member", "Everyone"}
+
+// buildGroupIDToNameMap indexes a list of raw group payloads (as returned by
+// dbtCloudClient.GetGroups()) by their numeric ID, so callers can resolve a
+// group ID to its name (e.g. to check whether it's a default group).
+func buildGroupIDToNameMap(listGroups []any) map[int]string {
+	groupIDToName := map[int]string{}
+	for _, group := range listGroups {
+		groupTyped := group.(map[string]any)
+		groupIDToName[int(groupTyped["id"].(float64))] = groupTyped["name"].(string)
+	}
+	return groupIDToName
+}
+
+// isDefaultGroupID reports whether groupID resolves (via groupIDToName) to
+// one of the built-in default groups (Owner/Member/Everyone). If the ID
+// isn't found in the map, it is treated as not default.
+func isDefaultGroupID(groupID int, groupIDToName map[int]string) bool {
+	name, ok := groupIDToName[groupID]
+	if !ok {
+		return false
+	}
+	return lo.Contains(defaultGroups, name)
+}
+
+// filterOutDefaultGroupIDs returns groupIDs with any built-in default group
+// (Owner/Member/Everyone) removed. Those groups are never generated as
+// dbtcloud_group resources, so any resource referencing group IDs must
+// exclude them to avoid dangling references (when linked) or attempting to
+// manage membership dbt platform itself controls (when not linked).
+func filterOutDefaultGroupIDs(groupIDs []int, groupIDToName map[int]string) []int {
+	filtered := []int{}
+	for _, groupID := range groupIDs {
+		if isDefaultGroupID(groupID, groupIDToName) {
+			continue
+		}
+		filtered = append(filtered, groupID)
+	}
+	return filtered
+}
+
 func linkResource(resourceType string) bool {
 	if len(listLinkedResources) == 0 {
 		return false
@@ -716,8 +762,6 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 				for _, group := range listGroups {
 					groupTyped := group.(map[string]any)
 
-					defaultGroups := []string{"Owner", "Member", "Everyone"}
-
 					// we check if the group is one of the default ones
 					_, ok := lo.Find(defaultGroups, func(i string) bool {
 						return i == groupTyped["name"].(string)
@@ -752,6 +796,16 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 			case "dbtcloud_user_groups":
 				listUsers := dbtCloudClient.GetUsers()
 
+				// we need the group names so we can exclude the built-in
+				// default groups (Owner/Member/Everyone) from group_ids:
+				// those groups are never generated as dbtcloud_group
+				// resources, so referencing them here (or even including
+				// their raw IDs) would either produce dangling resource
+				// references or manage membership that dbt platform itself
+				// controls.
+				listGroups := dbtCloudClient.GetGroups()
+				groupIDToName := buildGroupIDToNameMap(listGroups)
+
 				for _, user := range listUsers {
 					userTyped := user.(map[string]any)
 
@@ -773,12 +827,27 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 
 					userPermissionsArray := userTyped["permissions"].([]any)
 					userPermissions := userPermissionsArray[0].(map[string]any)
-					groupIDs := []int{}
+					allGroupIDs := []int{}
 
 					for _, group := range userPermissions["groups"].([]any) {
 						groupTyped := group.(map[string]any)
-						groupIDs = append(groupIDs, int(groupTyped["id"].(float64)))
+						allGroupIDs = append(allGroupIDs, int(groupTyped["id"].(float64)))
 					}
+
+					// exclude the built-in default groups: they are never
+					// generated as dbtcloud_group resources, so keeping them
+					// here would produce dangling references (when linked)
+					// or manage membership dbt platform already controls
+					// (when not linked).
+					groupIDs := filterOutDefaultGroupIDs(allGroupIDs, groupIDToName)
+
+					// if the user has no non-default groups left, there is
+					// nothing for this resource to manage, so we skip it
+					// entirely instead of emitting an empty/pointless block.
+					if len(groupIDs) == 0 {
+						continue
+					}
+
 					userTyped["group_ids"] = groupIDs
 
 					if linkResource("dbtcloud_group") {
