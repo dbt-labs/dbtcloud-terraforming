@@ -37,6 +37,13 @@ var resourceImportStringFormats = map[string]string{
 	// account_features is a singleton: there's exactly one instance per account,
 	// keyed by the account id rather than a per-item id.
 	"dbtcloud_account_features": ":id",
+	// dbtcloud_profile's composite id is project_id:profile_id. Unlike
+	// dbtcloud_environment's ":project_id::id" (whose ":id" resolves against
+	// the plain resource id passed into buildRawImportAddress), the profile's
+	// resource id is itself a composite label (project_id folded in, see the
+	// dbtcloud_profile case in generate.go and GetProfiles in api.go), so we
+	// resolve against the separate numeric "profile_id" field instead.
+	"dbtcloud_profile": ":project_id::profile_id",
 }
 
 func init() {
@@ -201,6 +208,29 @@ func runImport() func(cmd *cobra.Command, args []string) {
 			case "dbtcloud_account_features":
 				jsonStructData = dbtCloudClient.GetAccountFeatures()
 
+			case "dbtcloud_profile":
+				listProfiles := dbtCloudClient.GetProfiles(listFilterProjects)
+
+				listImportProfiles := []any{}
+				for _, profile := range listProfiles {
+					profileTyped := profile.(map[string]any)
+					projectID := profileTyped["project_id"].(float64)
+					profileID := profileTyped["id"].(float64)
+
+					// profile_id is only unique within a project, not across the
+					// account, so - exactly as generate.go's dbtcloud_profile case
+					// does - we fold project_id into "id" to get a resource address
+					// that matches the label `generate` produces for the same
+					// profile, and keep the plain numeric id separately as
+					// "profile_id" for the :profile_id placeholder used by the
+					// composite import address template above.
+					profileTyped["profile_id"] = profileID
+					profileTyped["id"] = fmt.Sprintf("%.0f_%.0f", projectID, profileID)
+
+					listImportProfiles = append(listImportProfiles, profileTyped)
+				}
+				jsonStructData = listImportProfiles
+
 			default:
 				fmt.Fprintf(cmd.OutOrStderr(), "%q is not yet supported for state import", resourceType)
 				return
@@ -296,6 +326,7 @@ func buildRawImportAddress(resourceType, resourceID string, data any) string {
 	connectionID := resolveImportField(dataTyped, "connection_id", "no-connection_id")
 	repositoryID := resolveImportField(dataTyped, "repository_id", "no-repository_id")
 	projectID := resolveImportField(dataTyped, "project_id", "no-project_id")
+	profileID := resolveImportField(dataTyped, "profile_id", "no-profile_id")
 	name := resolveImportField(dataTyped, "name", "no-name")
 
 	var userID string
@@ -316,6 +347,7 @@ func buildRawImportAddress(resourceType, resourceID string, data any) string {
 		":connection_id", connectionID,
 		":repository_id", repositoryID,
 		":project_id", projectID,
+		":profile_id", profileID,
 		":name", name,
 		":user_id", userID,
 	)

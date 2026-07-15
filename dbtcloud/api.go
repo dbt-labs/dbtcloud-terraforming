@@ -590,3 +590,61 @@ func (c *DbtCloudHTTPClient) GetAccountFeatures() []any {
 
 	return []any{features}
 }
+
+// GetProfiles fetches the profiles (project-scoped bindings of a connection,
+// credentials, and optional extended attributes) for each project in
+// listProjects, mirroring the per-project fetch pattern already used by
+// GetConnections/GetEnvironmentVariables above.
+//
+// The profiles endpoint itself doesn't return the warehouse type of the
+// credentials a profile points at, but callers (see the dbtcloud_profile
+// case in generate.go) need that to know which specific credential resource
+// type (dbtcloud_snowflake_credential, dbtcloud_bigquery_credential, etc.) a
+// profile's credentials_id should be linked to. We can't reuse
+// GetCredentials for this lookup because it only returns credentials that
+// are still attached to an environment's legacy credentials_id - which a
+// profile-bound environment's credentials never are, since those are bound
+// through the profile instead. So we fetch each project's credentials list
+// directly here and attach the matching credential (under the "credentials"
+// key) to each profile, mirroring how the environments endpoint already
+// embeds a nested "credentials" object for the same purpose.
+func (c *DbtCloudHTTPClient) GetProfiles(listProjects []int) []any {
+	projects := c.GetProjects(listProjects)
+	allProfiles := []any{}
+
+	for _, project := range projects {
+		projectTyped := project.(map[string]any)
+		projectID := int(projectTyped["id"].(float64))
+
+		if len(listProjects) > 0 && !lo.Contains(listProjects, projectID) {
+			continue
+		}
+
+		url := fmt.Sprintf("%s/v3/accounts/%s/projects/%d/profiles/", c.HostURL, c.AccountID, projectID)
+		projectProfiles := c.GetData(url)
+
+		if len(projectProfiles) == 0 {
+			continue
+		}
+
+		credentialsURL := fmt.Sprintf("%s/v3/accounts/%s/projects/%d/credentials/", c.HostURL, c.AccountID, projectID)
+		projectCredentials := c.GetData(credentialsURL)
+		credentialByID := map[float64]map[string]any{}
+		for _, credential := range projectCredentials {
+			credentialTyped := credential.(map[string]any)
+			credentialByID[credentialTyped["id"].(float64)] = credentialTyped
+		}
+
+		for _, profile := range projectProfiles {
+			profileTyped := profile.(map[string]any)
+			if credentialsID, ok := profileTyped["credentials_id"].(float64); ok {
+				if credentialDetails, found := credentialByID[credentialsID]; found {
+					profileTyped["credentials"] = credentialDetails
+				}
+			}
+			allProfiles = append(allProfiles, profileTyped)
+		}
+	}
+
+	return allProfiles
+}

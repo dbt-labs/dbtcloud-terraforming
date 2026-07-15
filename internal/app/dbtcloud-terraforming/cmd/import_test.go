@@ -54,6 +54,12 @@ func TestImport_BuildRawImportAddress(t *testing.T) {
 			data:         map[string]any{"id": "9999"},
 			want:         "9999",
 		},
+		"new project-scoped composite resource (dbtcloud_profile) resolves :project_id::profile_id": {
+			resourceType: "dbtcloud_profile",
+			resourceID:   "5_10",
+			data:         map[string]any{"id": "5_10", "project_id": float64(5), "profile_id": float64(10)},
+			want:         "5:10",
+		},
 	}
 
 	for name, tc := range tests {
@@ -81,6 +87,7 @@ func TestImport_ResolveImportField(t *testing.T) {
 		"field unexpected type":     {data: map[string]any{"repository_id": true}, key: "repository_id", fallback: "no-repository_id", want: "no-repository_id"},
 		"nil data map":              {data: nil, key: "name", fallback: "no-name", want: "no-name"},
 		"user_groups id-as-user_id": {data: map[string]any{"id": float64(42)}, key: "id", fallback: "no-userid", want: "42"},
+		"profile_id field present":  {data: map[string]any{"profile_id": float64(10)}, key: "profile_id", fallback: "no-profile_id", want: "10"},
 	}
 
 	for name, tc := range tests {

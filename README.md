@@ -61,6 +61,7 @@ This tool can be used to load existing dbt Cloud configuration into Terraform. C
 | dbtcloud_license_map                                      | Account        |                    |                  |                       |
 | dbtcloud_notification                                     | Account        | ✅                 | ✅               |                       |
 | dbtcloud_postgres_credential                              | Project        |                    |                  | 🔒*                  |
+| dbtcloud_profile                                          | Project        | ✅                 | ✅               |                       |
 | dbtcloud_project                                          | Project        | ✅                 | ✅               |                       |
 | dbtcloud_project_artefacts (deprecated)                   | Project        | ❌                 | ❌               |                       |
 | dbtcloud_project_connection (deprecated)                  | Project        | ❌                 | ❌               |                       |

@@ -103,6 +103,15 @@ func TestResourceGeneration(t *testing.T) {
 		// standalone unit coverage of the singleton ID handling and attribute emission in
 		// the meantime.
 		"dbt Cloud account features": {identifierType: "account", resourceType: "dbtcloud_account_features", testdataFilename: "dbtcloud_account_features"},
+		// NOTE: the "dbtcloud_profile" cassette (testdata/dbtcloud/dbtcloud_profile.yaml)
+		// has not been recorded yet - recording it requires live account credentials via:
+		//   OVERWRITE_VCR_CASSETTES=true go test ./internal/app/dbtcloud-terraforming/cmd/... \
+		//     -run TestResourceGeneration/dbt_Cloud_profiles -v
+		// Until that cassette exists, this row is scaffolded but will fail if run; see
+		// TestGenerate_ProfileHCLEmission and TestGenerate_TransformProfileForGenerate for
+		// standalone unit coverage of the composite ID handling and attribute emission in
+		// the meantime.
+		"dbt Cloud profiles": {identifierType: "account", resourceType: "dbtcloud_profile", testdataFilename: "dbtcloud_profile"},
 	}
 
 	for name, tc := range tests {
@@ -303,4 +312,172 @@ func TestGenerate_AccountFeaturesHCLEmission(t *testing.T) {
 	}
 	assert.True(t, strings.Contains(output, "true") && strings.Contains(output, "false"), "expected both true and false flag values to be emitted")
 	assert.NotRegexp(t, regexp.MustCompile(`(?m)^\s*id\s*=`), output, "the id field must not be emitted as an attribute")
+}
+
+// withLinkedResources temporarily sets the package-level listLinkedResources
+// used by linkResource() for the duration of a test, restoring the previous
+// value afterwards. Tests that don't call this leave linking off, matching
+// linkResource's own "no resources configured -> false" default.
+func withLinkedResources(t *testing.T, linked []string) {
+	t.Helper()
+	orig := listLinkedResources
+	listLinkedResources = linked
+	t.Cleanup(func() { listLinkedResources = orig })
+}
+
+// fabricatedProfilePayload mimics a single element of the []any returned by
+// dbtCloudClient.GetProfiles(): a project-scoped profile with the attribute
+// names confirmed against the terraform-provider-dbtcloud schema (key,
+// connection_id, credentials_id - plural, extended_attributes_id optional).
+func fabricatedProfilePayload() map[string]any {
+	return map[string]any{
+		"id":             float64(10),
+		"project_id":     float64(5),
+		"key":            "my-profile",
+		"connection_id":  float64(20),
+		"credentials_id": float64(30),
+	}
+}
+
+// TestGenerate_TransformProfileForGenerate covers the dbtcloud_profile
+// generate-time transform: the composite id folding (project_id into "id",
+// plain id preserved as "profile_id") must happen regardless of linking, and
+// linked references must only replace connection_id/credentials_id/
+// project_id when the corresponding resource type is in
+// --linked-resource-types.
+func TestGenerate_TransformProfileForGenerate(t *testing.T) {
+	t.Run("no linking: ids stay numeric except the folded composite id", func(t *testing.T) {
+		profile := fabricatedProfilePayload()
+		got := transformProfileForGenerate(profile)
+
+		assert.Equal(t, "5_10", got["id"])
+		assert.Equal(t, float64(10), got["profile_id"])
+		assert.Equal(t, float64(5), got["project_id"])
+		assert.Equal(t, float64(20), got["connection_id"])
+		assert.Equal(t, float64(30), got["credentials_id"])
+	})
+
+	t.Run("linking dbtcloud_project and dbtcloud_global_connection rewrites references", func(t *testing.T) {
+		withLinkedResources(t, []string{"dbtcloud_project", "dbtcloud_global_connection"})
+
+		profile := fabricatedProfilePayload()
+		got := transformProfileForGenerate(profile)
+
+		assert.Equal(t, "5_10", got["id"], "the composite id must still be derived from the original numeric project_id")
+		assert.Contains(t, got["project_id"], "dbtcloud_project.terraform_managed_resource_5.id")
+		assert.Contains(t, got["connection_id"], "dbtcloud_global_connection.terraform_managed_resource_20.id")
+	})
+
+	t.Run("linking dbtcloud_snowflake_credential without embedded credentials type falls back to TBD", func(t *testing.T) {
+		withLinkedResources(t, []string{"dbtcloud_snowflake_credential"})
+
+		profile := fabricatedProfilePayload()
+		got := transformProfileForGenerate(profile)
+
+		assert.Equal(t, "---TBD---", got["credentials_id"])
+	})
+
+	t.Run("linking dbtcloud_snowflake_credential with embedded credentials type resolves the reference", func(t *testing.T) {
+		withLinkedResources(t, []string{"dbtcloud_snowflake_credential"})
+
+		profile := fabricatedProfilePayload()
+		profile["credentials"] = map[string]any{"type": "snowflake", "adapter_version": ""}
+		got := transformProfileForGenerate(profile)
+
+		assert.Contains(t, got["credentials_id"], "dbtcloud_snowflake_credential.terraform_managed_resource_30.credential_id")
+	})
+}
+
+// TestGenerate_ProfileHCLEmission feeds a fabricated profile payload through
+// the same label-derivation and attribute-emission primitives
+// (computeResourceLabel, writeAttrLine) that generate.go's schema-driven
+// loop uses for every resource, asserting the resulting HCL carries the
+// project-scoped composite label and the confirmed attribute names.
+func TestGenerate_ProfileHCLEmission(t *testing.T) {
+	profile := transformProfileForGenerate(fabricatedProfilePayload())
+
+	resourceLabel := computeResourceLabel("dbtcloud_profile", profile, "")
+	assert.Equal(t, "terraform_managed_resource_5_10", resourceLabel)
+
+	f := hclwrite.NewEmptyFile()
+	resource := f.Body().AppendNewBlock("resource", []string{"dbtcloud_profile", resourceLabel}).Body()
+
+	// profile_id is a computed-only attribute in the real provider schema
+	// (like credential_id on the credential resources), so it - like id -
+	// would never reach writeAttrLine via generate.go's schema-driven loop.
+	for _, attrName := range []string{"project_id", "key", "connection_id", "credentials_id"} {
+		writeAttrLine(attrName, profile[attrName], "", resource)
+	}
+
+	output := string(f.Bytes())
+
+	assert.Contains(t, output, `resource "dbtcloud_profile" "terraform_managed_resource_5_10"`)
+	assert.Contains(t, output, `key`)
+	assert.Contains(t, output, "connection_id")
+	assert.Contains(t, output, "credentials_id")
+	assert.NotRegexp(t, regexp.MustCompile(`(?m)^\s*id\s*=`), output, "the id field must not be emitted as an attribute")
+	assert.NotRegexp(t, regexp.MustCompile(`(?m)^\s*profile_id\s*=`), output, "profile_id is computed-only and must not be emitted as an attribute")
+}
+
+// fabricatedEnvironmentPayload mimics a single element of the []any returned
+// by dbtCloudClient.GetEnvironments(): withProfile controls whether the
+// environment carries a primary_profile_id (profile-based account) or the
+// legacy connection_id/credentials_id/extended_attributes_id trio
+// (non-profile account) - never both, matching what the real API returns.
+func fabricatedEnvironmentPayload(withProfile bool) map[string]any {
+	env := map[string]any{
+		"id":         float64(456),
+		"project_id": float64(71),
+		"name":       "prod",
+	}
+	if withProfile {
+		env["primary_profile_id"] = float64(10)
+	} else {
+		env["connection_id"] = float64(20)
+		env["credentials_id"] = float64(30)
+		env["extended_attributes_id"] = float64(40)
+	}
+	return env
+}
+
+// TestGenerate_TransformEnvironmentForGenerate_EitherOr is the core
+// regression test for the never-both invariant: a profile-bound environment
+// must emit primary_profile_id and none of the legacy trio, a non-profile
+// environment must be completely unchanged from the pre-existing behavior,
+// and neither branch may ever leave both primary_profile_id and any of the
+// legacy trio present at once.
+func TestGenerate_TransformEnvironmentForGenerate_EitherOr(t *testing.T) {
+	t.Run("profile-bound environment: primary_profile_id present, legacy trio absent", func(t *testing.T) {
+		env := fabricatedEnvironmentPayload(true)
+		got := transformEnvironmentForGenerate(env)
+
+		assert.Contains(t, got, "primary_profile_id")
+		assert.Equal(t, float64(10), got["primary_profile_id"], "without linking, primary_profile_id stays the plain numeric profile id")
+
+		for _, legacyField := range []string{"connection_id", "credential_id", "credentials_id", "extended_attributes_id"} {
+			assert.NotContains(t, got, legacyField, "legacy field %q must be absent whenever primary_profile_id is present", legacyField)
+		}
+	})
+
+	t.Run("profile-bound environment with linking: primary_profile_id resolves to the profile resource, legacy trio still absent", func(t *testing.T) {
+		withLinkedResources(t, []string{"dbtcloud_profile"})
+
+		env := fabricatedEnvironmentPayload(true)
+		got := transformEnvironmentForGenerate(env)
+
+		assert.Contains(t, got["primary_profile_id"], "dbtcloud_profile.terraform_managed_resource_71_10.profile_id")
+		for _, legacyField := range []string{"connection_id", "credential_id", "credentials_id", "extended_attributes_id"} {
+			assert.NotContains(t, got, legacyField)
+		}
+	})
+
+	t.Run("non-profile environment: legacy trio unchanged, primary_profile_id absent", func(t *testing.T) {
+		env := fabricatedEnvironmentPayload(false)
+		got := transformEnvironmentForGenerate(env)
+
+		assert.NotContains(t, got, "primary_profile_id")
+		assert.Equal(t, float64(20), got["connection_id"])
+		assert.Equal(t, float64(30), got["credential_id"], "credentials_id is renamed to credential_id, matching pre-existing behavior")
+		assert.Equal(t, float64(40), got["extended_attributes_id"])
+	})
 }
