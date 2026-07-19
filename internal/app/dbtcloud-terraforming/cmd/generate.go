@@ -100,6 +100,268 @@ func linkResource(resourceType string) bool {
 	return lo.Contains(listLinkedResources, resourceType) || listLinkedResources[0] == "all"
 }
 
+// computeResourceLabel derives the `terraform_managed_resource_<suffix>` label
+// used for a generated `resource "..." "..."` block.
+//
+// If resourceIDOverride is non-empty, it is used directly as the suffix - this
+// is how a resource's `case` above opts a resource out of id-based labelling,
+// which is needed for resources that aren't keyed by a single numeric/string
+// id (e.g. dbtcloud_account_features, a singleton with no per-item id).
+//
+// Otherwise the suffix is derived from structData["id"], exactly as it always
+// has been for every other (list-based, id-keyed) resource type.
+func computeResourceLabel(resourceType string, structData map[string]interface{}, resourceIDOverride string) string {
+	if resourceIDOverride != "" {
+		return fmt.Sprintf("terraform_managed_resource_%s", resourceIDOverride)
+	}
+
+	id := ""
+	switch structData["id"].(type) {
+	case float64:
+		id = fmt.Sprintf("%.0f", structData["id"].(float64))
+	case nil:
+		panic(fmt.Sprintf("There is no `id` defined for the resource %s", resourceType))
+	default:
+		id = structData["id"].(string)
+	}
+
+	return fmt.Sprintf("terraform_managed_resource_%s", id)
+}
+
+// transformEnvironmentForGenerate applies the dbtcloud_environment-specific
+// generate-time transforms to a single environment payload: optionally
+// linking project_id to a generated dbtcloud_project resource, and - the
+// core either/or invariant - binding the environment to either a profile
+// (via primary_profile_id) or the legacy connection_id/credential_id/
+// extended_attributes_id trio, but never both. The provider rejects setting
+// primary_profile_id alongside any of the legacy trio, so whichever
+// primary_profile_id is present on the payload decides which branch runs,
+// and the branch not taken is guaranteed absent from the result.
+//
+// It mutates and returns environmentsTyped in place, matching the mutate-in-
+// place style used by every other resource case in generateResources().
+func transformEnvironmentForGenerate(environmentsTyped map[string]any) map[string]any {
+	projectID := environmentsTyped["project_id"].(float64)
+
+	if linkResource("dbtcloud_project") {
+		environmentsTyped["project_id"] = fmt.Sprintf("%sdbtcloud_project.terraform_managed_resource_%0.f.id", prefixNoQuotes, projectID)
+	}
+
+	if primaryProfileID, hasProfile := environmentsTyped["primary_profile_id"].(float64); hasProfile {
+		if linkResource("dbtcloud_profile") {
+			environmentsTyped["primary_profile_id"] = fmt.Sprintf("%sdbtcloud_profile.terraform_managed_resource_%0.f_%0.f.profile_id", prefixNoQuotes, projectID, primaryProfileID)
+		}
+
+		// omit the legacy trio entirely - both the raw API field names and the
+		// "credential_id" rename performed in the non-profile branch below.
+		delete(environmentsTyped, "connection_id")
+		delete(environmentsTyped, "credentials_id")
+		delete(environmentsTyped, "credential_id")
+		delete(environmentsTyped, "extended_attributes_id")
+	} else {
+		// handle the case when credentialID is not a float because it is null
+		if credentialID, ok := environmentsTyped["credentials_id"].(float64); ok {
+
+			environmentsTyped["credential_id"] = credentialID
+			if linkResource("dbtcloud_snowflake_credential") || linkResource("dbtcloud_bigquery_credential") || linkResource("dbtcloud_databricks_credential") {
+
+				credentials, credentialsOK := environmentsTyped["credentials"].(map[string]any)
+
+				if credentialsOK {
+					credentialsType := credentials["type"].(string)
+					adapterVersion := credentials["adapter_version"].(string)
+
+					if lo.Contains([]string{"snowflake", "bigquery"}, credentialsType) {
+						environmentsTyped["credential_id"] = fmt.Sprintf("%sdbtcloud_%s_credential.terraform_managed_resource_%0.f.credential_id", prefixNoQuotes, credentialsType, credentialID)
+					} else if adapterVersion == "databricks_v0" {
+						environmentsTyped["credential_id"] = fmt.Sprintf("%sdbtcloud_databricks_credential.terraform_managed_resource_%0.f.credential_id", prefixNoQuotes, credentialID)
+					} else {
+						environmentsTyped["credential_id"] = fmt.Sprintf("---TBD---credential type not supported yet for %s---", adapterVersion)
+					}
+
+				} else {
+					environmentsTyped["credential_id"] = "---TBD---"
+				}
+			}
+		}
+		if linkResource("dbtcloud_global_connection") {
+			connectionID := environmentsTyped["connection_id"].(float64)
+			environmentsTyped["connection_id"] = fmt.Sprintf("%sdbtcloud_global_connection.terraform_managed_resource_%0.f.id", prefixNoQuotes, connectionID)
+		}
+
+		// handle the case when extended_attributes_id is not set
+		if extendedAttributesID, ok := environmentsTyped["extended_attributes_id"].(float64); ok {
+			if linkResource("dbtcloud_extended_attributes") {
+				environmentsTyped["extended_attributes_id"] = fmt.Sprintf("%sdbtcloud_extended_attributes.terraform_managed_resource_%0.f.extended_attributes_id", prefixNoQuotes, extendedAttributesID)
+			}
+		}
+	}
+
+	return environmentsTyped
+}
+
+// transformProfileForGenerate applies the dbtcloud_profile-specific
+// generate-time transforms to a single profile payload: it folds project_id
+// into the "id" field (see the resourceIDOverride discussion on the
+// dbtcloud_profile case above for why - profile_id is only unique within a
+// project, not across the account), keeps the plain numeric profile id
+// separately as "profile_id" for the resource's own attribute, and
+// optionally links project_id/connection_id/credentials_id/
+// extended_attributes_id to their generated counterparts, mirroring
+// transformEnvironmentForGenerate's linking logic exactly.
+//
+// It mutates and returns profileTyped in place, matching the mutate-in-place
+// style used by every other resource case in generateResources().
+func transformProfileForGenerate(profileTyped map[string]any) map[string]any {
+	projectID := profileTyped["project_id"].(float64)
+	profileID := profileTyped["id"].(float64)
+
+	profileTyped["profile_id"] = profileID
+	profileTyped["id"] = fmt.Sprintf("%.0f_%.0f", projectID, profileID)
+
+	if linkResource("dbtcloud_project") {
+		profileTyped["project_id"] = fmt.Sprintf("%sdbtcloud_project.terraform_managed_resource_%0.f.id", prefixNoQuotes, projectID)
+	}
+
+	if connectionID, ok := profileTyped["connection_id"].(float64); ok {
+		if linkResource("dbtcloud_global_connection") {
+			profileTyped["connection_id"] = fmt.Sprintf("%sdbtcloud_global_connection.terraform_managed_resource_%0.f.id", prefixNoQuotes, connectionID)
+		}
+	}
+
+	// handle the case when credentialsID is not a float because it is null
+	if credentialsID, ok := profileTyped["credentials_id"].(float64); ok {
+		if linkResource("dbtcloud_snowflake_credential") || linkResource("dbtcloud_bigquery_credential") || linkResource("dbtcloud_databricks_credential") {
+
+			credentials, credentialsOK := profileTyped["credentials"].(map[string]any)
+
+			if credentialsOK {
+				credentialsType := credentials["type"].(string)
+				adapterVersion := credentials["adapter_version"].(string)
+
+				if lo.Contains([]string{"snowflake", "bigquery"}, credentialsType) {
+					profileTyped["credentials_id"] = fmt.Sprintf("%sdbtcloud_%s_credential.terraform_managed_resource_%0.f.credential_id", prefixNoQuotes, credentialsType, credentialsID)
+				} else if adapterVersion == "databricks_v0" {
+					profileTyped["credentials_id"] = fmt.Sprintf("%sdbtcloud_databricks_credential.terraform_managed_resource_%0.f.credential_id", prefixNoQuotes, credentialsID)
+				} else {
+					profileTyped["credentials_id"] = fmt.Sprintf("---TBD---credential type not supported yet for %s---", adapterVersion)
+				}
+
+			} else {
+				profileTyped["credentials_id"] = "---TBD---"
+			}
+		}
+	}
+
+	// handle the case when extended_attributes_id is not set
+	if extendedAttributesID, ok := profileTyped["extended_attributes_id"].(float64); ok {
+		if linkResource("dbtcloud_extended_attributes") {
+			profileTyped["extended_attributes_id"] = fmt.Sprintf("%sdbtcloud_extended_attributes.terraform_managed_resource_%0.f.extended_attributes_id", prefixNoQuotes, extendedAttributesID)
+		}
+	}
+
+	return profileTyped
+}
+
+// transformJobCompletionTriggerForGenerate builds the jsonStructData entry
+// for a single dbtcloud_job_completion_trigger, from the
+// job_completion_trigger_condition field already present on a dbtcloud_job
+// payload (see the dbtcloud_job case in generateResources(), which parses
+// this same field for its own, separate purposes).
+//
+// It returns (nil, false) when the job carries no completion trigger
+// condition at all, so callers can skip it without generating an empty
+// resource.
+//
+// The real dbtcloud_job_completion_trigger resource schema is flat - job_id
+// (the downstream job this trigger is attached to), trigger_job_id (the
+// upstream job whose completion fires it), project_id, and statuses - with
+// no nested "condition" block, confirmed against the provider's schema
+// source. Its id is just the downstream job's plain numeric id (matching the
+// provider's ImportState, which parses the import id directly as job_id),
+// so no composite-id folding is needed here, unlike
+// transformProfileForGenerate.
+func transformJobCompletionTriggerForGenerate(jobTyped map[string]any) (map[string]any, bool) {
+	jobCompletionTrigger, ok := jobTyped["job_completion_trigger_condition"].(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	condition, ok := jobCompletionTrigger["condition"].(map[string]any)
+	if !ok {
+		return nil, false
+	}
+
+	downstreamJobID := jobTyped["id"].(float64)
+	upstreamProjectID := condition["project_id"].(float64)
+	upstreamJobID := condition["job_id"].(float64)
+
+	triggerData := map[string]any{
+		"id":             downstreamJobID,
+		"job_id":         downstreamJobID,
+		"trigger_job_id": upstreamJobID,
+		"project_id":     upstreamProjectID,
+		"statuses":       mapJobStatusCodeToText(condition["statuses"].([]any)),
+	}
+
+	if linkResource("dbtcloud_job") {
+		triggerData["job_id"] = fmt.Sprintf("%sdbtcloud_job.terraform_managed_resource_%0.f.id", prefixNoQuotes, downstreamJobID)
+		triggerData["trigger_job_id"] = fmt.Sprintf("%sdbtcloud_job.terraform_managed_resource_%0.f.id", prefixNoQuotes, upstreamJobID)
+	}
+	if linkResource("dbtcloud_project") {
+		triggerData["project_id"] = fmt.Sprintf("%sdbtcloud_project.terraform_managed_resource_%0.f.id", prefixNoQuotes, upstreamProjectID)
+	}
+
+	return triggerData, true
+}
+
+// transformEnvironmentVariableJobOverrideForGenerate applies the
+// dbtcloud_environment_variable_job_override-specific generate-time
+// transforms to a single override payload (as returned by
+// GetEnvironmentVariableJobOverrides): it folds project_id/job_definition_id/
+// the override's own numeric id into "id" (mirroring transformProfileForGenerate's
+// approach, since environment_variable_job_override_id is only meaningful
+// together with the project/job scope it lives in), externalizes the value
+// of a secret-named override (DBT_ENV_SECRET_ prefix) to a Terraform
+// variable exactly as the existing dbtcloud_environment_variable case does,
+// and optionally links job_definition_id/project_id to their generated
+// counterparts.
+//
+// It mutates and returns overrideTyped in place, matching the mutate-in-place
+// style used by every other resource transform in this file.
+func transformEnvironmentVariableJobOverrideForGenerate(overrideTyped map[string]any) map[string]any {
+	projectID := overrideTyped["project_id"].(float64)
+	jobDefinitionID := overrideTyped["job_definition_id"].(float64)
+	overrideID := overrideTyped["environment_variable_job_override_id"].(float64)
+	envVarName := overrideTyped["name"].(string)
+
+	overrideTyped["id"] = fmt.Sprintf("%.0f_%.0f_%.0f", projectID, jobDefinitionID, overrideID)
+
+	// mirror the DBT_ENV_SECRET_ externalization pattern used by the
+	// existing dbtcloud_environment_variable case exactly: a secret-named
+	// override's value is registered as a Terraform variable and
+	// substituted with a var.<name> reference instead of being emitted
+	// inline.
+	if strings.HasPrefix(envVarName, "DBT_ENV_SECRET_") {
+		targetURL := fmt.Sprintf("%s/deploy/%s/projects/%.0f/jobs/%.0f/settings/", dbtCloudClient.HostURL[:len(dbtCloudClient.HostURL)-4], dbtCloudClient.AccountID, projectID, jobDefinitionID)
+		varName := fmt.Sprintf("dbtcloud_environment_variable_job_override_%.0f_%.0f_%s", projectID, jobDefinitionID, slug.Make(envVarName))
+		AllTFVars = append(AllTFVars, tfVar{
+			varType:        "string",
+			varName:        varName,
+			varDescription: "The secret env var override for " + envVarName + " on job " + fmt.Sprintf("%.0f", jobDefinitionID) + " in the project " + fmt.Sprintf("%.0f", projectID) + " - " + targetURL,
+		})
+		overrideTyped["raw_value"] = fmt.Sprintf("%svar.%s", prefixNoQuotes, varName)
+	}
+
+	if linkResource("dbtcloud_job") {
+		overrideTyped["job_definition_id"] = fmt.Sprintf("%sdbtcloud_job.terraform_managed_resource_%0.f.id", prefixNoQuotes, jobDefinitionID)
+	}
+	if linkResource("dbtcloud_project") {
+		overrideTyped["project_id"] = fmt.Sprintf("%sdbtcloud_project.terraform_managed_resource_%0.f.id", prefixNoQuotes, projectID)
+	}
+
+	return overrideTyped
+}
+
 func generateResources() func(cmd *cobra.Command, args []string) {
 	return func(cmd *cobra.Command, args []string) {
 		if outputFile != "" {
@@ -188,13 +450,28 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 
 		// we only get jobs if we need them, there might be a lot of them
 		prefetchedJobs := []any{}
-		resourceNeedingJobs := []string{"dbtcloud_job", "dbtcloud_webhook", "dbtcloud_notification"}
+		resourceNeedingJobs := []string{"dbtcloud_job", "dbtcloud_webhook", "dbtcloud_notification", "dbtcloud_job_completion_trigger", "dbtcloud_environment_variable_job_override"}
 		if len(lo.Intersect(resourceTypes, resourceNeedingJobs)) > 0 {
 			prefetchedJobs = dbtCloudClient.GetJobs(listFilterProjects)
 		}
 		prefetchedJobsIDs := lo.Map(prefetchedJobs, func(job any, index int) int {
 			return int(job.(map[string]any)["id"].(float64))
 		})
+
+		// the dbtcloud_job case below mutates each job's own
+		// job_completion_trigger_condition field in place for its own
+		// purposes (jobs and prefetchedJobs share the same underlying map
+		// objects). We extract the completion-trigger data for
+		// dbtcloud_job_completion_trigger here, before that mutation can
+		// happen, so its output doesn't depend on whether/when "dbtcloud_job"
+		// is processed in the same invocation.
+		prefetchedJobCompletionTriggers := []any{}
+		for _, job := range prefetchedJobs {
+			jobTyped := job.(map[string]any)
+			if triggerData, ok := transformJobCompletionTriggerForGenerate(jobTyped); ok {
+				prefetchedJobCompletionTriggers = append(prefetchedJobCompletionTriggers, triggerData)
+			}
+		}
 		// we need this because our API for webhooks returns job IDs as strings
 		prefetchedJobsIDsString := lo.Map(prefetchedJobsIDs, func(jobID int, index int) string {
 			return fmt.Sprintf("%d", jobID)
@@ -224,6 +501,14 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 			// to allow it to be referenced further down in the loop that outputs the
 			// newly generated resources.
 			resourceCount := 0
+
+			// resourceIDOverride lets a `case` below set the resource label used in
+			// the generated `resource "..." "..."` block directly, instead of it being
+			// derived from `structData["id"]`. This is needed for resources that
+			// aren't keyed by a single numeric/string id - e.g. singletons like
+			// dbtcloud_account_features, which have exactly one instance per account
+			// and no `id` field of their own.
+			resourceIDOverride := ""
 
 			var jsonStructData []any
 
@@ -341,50 +626,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 
 				for _, environment := range listEnvironments {
 					environmentsTyped := environment.(map[string]any)
-					projectID := environmentsTyped["project_id"].(float64)
-
-					if linkResource("dbtcloud_project") {
-						environmentsTyped["project_id"] = fmt.Sprintf("%sdbtcloud_project.terraform_managed_resource_%0.f.id", prefixNoQuotes, projectID)
-					}
-
-					// handle the case when credentialID is not a float because it is null
-					if credentialID, ok := environmentsTyped["credentials_id"].(float64); ok {
-
-						environmentsTyped["credential_id"] = credentialID
-						if linkResource("dbtcloud_snowflake_credential") || linkResource("dbtcloud_bigquery_credential") || linkResource("dbtcloud_databricks_credential") {
-
-							credentials, credentialsOK := environmentsTyped["credentials"].(map[string]any)
-
-							if credentialsOK {
-								credentialsType := credentials["type"].(string)
-								adapterVersion := credentials["adapter_version"].(string)
-
-								if lo.Contains([]string{"snowflake", "bigquery"}, credentialsType) {
-									environmentsTyped["credential_id"] = fmt.Sprintf("%sdbtcloud_%s_credential.terraform_managed_resource_%0.f.credential_id", prefixNoQuotes, credentialsType, credentialID)
-								} else if adapterVersion == "databricks_v0" {
-									environmentsTyped["credential_id"] = fmt.Sprintf("%sdbtcloud_databricks_credential.terraform_managed_resource_%0.f.credential_id", prefixNoQuotes, credentialID)
-								} else {
-									environmentsTyped["credential_id"] = fmt.Sprintf("---TBD---credential type not supported yet for %s---", adapterVersion)
-								}
-
-							} else {
-								environmentsTyped["credential_id"] = "---TBD---"
-							}
-						}
-					}
-					if linkResource("dbtcloud_global_connection") {
-						connectionID := environmentsTyped["connection_id"].(float64)
-						environmentsTyped["connection_id"] = fmt.Sprintf("%sdbtcloud_global_connection.terraform_managed_resource_%0.f.id", prefixNoQuotes, connectionID)
-					}
-
-					// handle the case when extended_attributes_id is not set
-					if extendedAttributesID, ok := environmentsTyped["extended_attributes_id"].(float64); ok {
-						if linkResource("dbtcloud_extended_attributes") {
-							environmentsTyped["extended_attributes_id"] = fmt.Sprintf("%sdbtcloud_extended_attributes.terraform_managed_resource_%0.f.extended_attributes_id", prefixNoQuotes, extendedAttributesID)
-						}
-					}
-
-					jsonStructData = append(jsonStructData, environmentsTyped)
+					jsonStructData = append(jsonStructData, transformEnvironmentForGenerate(environmentsTyped))
 				}
 
 				resourceCount = len(jsonStructData)
@@ -1063,6 +1305,75 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 
 				resourceCount = len(jsonStructData)
 
+			// account_features is a singleton: one set of feature flags per account,
+			// not a list of items, so there's no per-item `id` to derive a resource
+			// label from. We label it directly via resourceIDOverride instead.
+			case "dbtcloud_account_features":
+
+				jsonStructData = dbtCloudClient.GetAccountFeatures()
+				resourceCount = len(jsonStructData)
+				resourceIDOverride = "account_features"
+
+			// dbtcloud_profile is project-scoped and its `profile_id` is only
+			// unique within a project, not across the account, so a plain
+			// numeric label (as used by e.g. dbtcloud_environment) could collide
+			// across projects. Rather than generalizing resourceIDOverride to
+			// vary per item (it is a single value shared by every item of a
+			// resource type in the post-switch loop below), we fold project_id
+			// into structData["id"] itself - exactly the approach
+			// dbtcloud_environment_variable already uses for its own composite
+			// id above. computeResourceLabel's existing string-id path then
+			// picks this up unchanged, and the plain numeric profile id is kept
+			// separately as "profile_id" for the resource's own attribute and
+			// for the import composite address.
+			case "dbtcloud_profile":
+
+				listProfiles := dbtCloudClient.GetProfiles(listFilterProjects)
+
+				for _, profile := range listProfiles {
+					profileTyped := profile.(map[string]any)
+					jsonStructData = append(jsonStructData, transformProfileForGenerate(profileTyped))
+				}
+
+				resourceCount = len(jsonStructData)
+
+			// dbtcloud_job_completion_trigger reproduces, as its own
+			// standalone resource, the "run after" relationship that already
+			// rides along on a job's own payload under
+			// job_completion_trigger_condition (see the dbtcloud_job case
+			// above, which already parses this same field for its own
+			// purposes). Per the real provider schema, the standalone
+			// resource's attributes are flat - job_id (the downstream job
+			// this trigger is attached to), trigger_job_id (the upstream job
+			// whose completion fires it), project_id, and statuses - with no
+			// nested "condition" block. Its id is just the downstream job's
+			// plain numeric id (matching the provider's ImportState, which
+			// parses the import id directly as job_id), so no composite-id
+			// folding is needed here, unlike dbtcloud_profile.
+			case "dbtcloud_job_completion_trigger":
+
+				jsonStructData = prefetchedJobCompletionTriggers
+				resourceCount = len(jsonStructData)
+
+			// dbtcloud_environment_variable_job_override's true id
+			// (environment_variable_job_override_id) is only meaningful
+			// together with the project/job scope it lives in, so - exactly
+			// as dbtcloud_profile and dbtcloud_environment_variable already
+			// do above - we fold project_id/job_definition_id/override_id
+			// into structData["id"] for the resource label, while keeping
+			// the plain numeric override id under
+			// "environment_variable_job_override_id" for the import address.
+			case "dbtcloud_environment_variable_job_override":
+
+				listOverrides := dbtCloudClient.GetEnvironmentVariableJobOverrides(listFilterProjects, prefetchedJobs)
+
+				for _, override := range listOverrides {
+					overrideTyped := override.(map[string]any)
+					jsonStructData = append(jsonStructData, transformEnvironmentVariableJobOverrideForGenerate(overrideTyped))
+				}
+
+				resourceCount = len(jsonStructData)
+
 			default:
 				fmt.Fprintf(cmd.OutOrStderr(), "%q is not yet supported for automatic generation", resourceType)
 				return
@@ -1081,17 +1392,7 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 				if os.Getenv("USE_STATIC_RESOURCE_IDS") == "true" {
 					resourceID = "terraform_managed_resource"
 				} else {
-					id := ""
-					switch structData["id"].(type) {
-					case float64:
-						id = fmt.Sprintf("%.0f", structData["id"].(float64))
-					case nil:
-						panic(fmt.Sprintf("There is no `id` defined for the resource %s", resourceType))
-					default:
-						id = structData["id"].(string)
-					}
-
-					resourceID = fmt.Sprintf("terraform_managed_resource_%s", id)
+					resourceID = computeResourceLabel(resourceType, structData, resourceIDOverride)
 				}
 				resource := rootBody.AppendNewBlock("resource", []string{resourceType, resourceID}).Body()
 
