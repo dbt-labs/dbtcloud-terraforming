@@ -34,6 +34,30 @@ var resourceImportStringFormats = map[string]string{
 	"dbtcloud_notification":          ":id",
 	"dbtcloud_service_token":         ":id",
 	"dbtcloud_global_connection":     ":id",
+	// account_features is a singleton: there's exactly one instance per account,
+	// keyed by the account id rather than a per-item id.
+	"dbtcloud_account_features": ":id",
+	// dbtcloud_profile's composite id is project_id:profile_id. Unlike
+	// dbtcloud_environment's ":project_id::id" (whose ":id" resolves against
+	// the plain resource id passed into buildRawImportAddress), the profile's
+	// resource id is itself a composite label (project_id folded in, see the
+	// dbtcloud_profile case in generate.go and GetProfiles in api.go), so we
+	// resolve against the separate numeric "profile_id" field instead.
+	"dbtcloud_profile": ":project_id::profile_id",
+	// dbtcloud_job_completion_trigger's own id is just the plain numeric id
+	// of the downstream job it's attached to (matching the provider's
+	// ImportState, which parses the import id directly as job_id) - no
+	// composite folding needed, unlike dbtcloud_profile.
+	"dbtcloud_job_completion_trigger": ":id",
+	// dbtcloud_environment_variable_job_override's real import id is
+	// project_id:job_definition_id:environment_variable_job_override_id (per
+	// the provider's ImportState). Its resource id is folded (project_id,
+	// job_definition_id, and the override id all baked into "id", see the
+	// dbtcloud_environment_variable_job_override case in generate.go), so -
+	// exactly like dbtcloud_profile's ":profile_id" - we resolve the last
+	// segment against the separate numeric
+	// "environment_variable_job_override_id" field instead of ":id".
+	"dbtcloud_environment_variable_job_override": ":project_id::job_definition_id::environment_variable_job_override_id",
 }
 
 func init() {
@@ -82,7 +106,7 @@ func runImport() func(cmd *cobra.Command, args []string) {
 		importBody := importFile.Body()
 
 		prefetchedJobs := []any{}
-		resourceNeedingJobs := []string{"dbtcloud_job", "dbtcloud_webhook"}
+		resourceNeedingJobs := []string{"dbtcloud_job", "dbtcloud_webhook", "dbtcloud_job_completion_trigger", "dbtcloud_environment_variable_job_override"}
 		if len(lo.Intersect(resourceTypes, resourceNeedingJobs)) > 0 {
 			prefetchedJobs = dbtCloudClient.GetJobs(listFilterProjects)
 		}
@@ -195,6 +219,71 @@ func runImport() func(cmd *cobra.Command, args []string) {
 			case "dbtcloud_global_connection":
 				jsonStructData = dbtCloudClient.GetGlobalConnectionsSummary()
 
+			case "dbtcloud_account_features":
+				jsonStructData = dbtCloudClient.GetAccountFeatures()
+
+			case "dbtcloud_profile":
+				listProfiles := dbtCloudClient.GetProfiles(listFilterProjects)
+
+				listImportProfiles := []any{}
+				for _, profile := range listProfiles {
+					profileTyped := profile.(map[string]any)
+					projectID := profileTyped["project_id"].(float64)
+					profileID := profileTyped["id"].(float64)
+
+					// profile_id is only unique within a project, not across the
+					// account, so - exactly as generate.go's dbtcloud_profile case
+					// does - we fold project_id into "id" to get a resource address
+					// that matches the label `generate` produces for the same
+					// profile, and keep the plain numeric id separately as
+					// "profile_id" for the :profile_id placeholder used by the
+					// composite import address template above.
+					profileTyped["profile_id"] = profileID
+					profileTyped["id"] = fmt.Sprintf("%.0f_%.0f", projectID, profileID)
+
+					listImportProfiles = append(listImportProfiles, profileTyped)
+				}
+				jsonStructData = listImportProfiles
+
+			case "dbtcloud_job_completion_trigger":
+				listImportTriggers := []any{}
+				for _, job := range prefetchedJobs {
+					jobTyped := job.(map[string]any)
+					if _, ok := jobTyped["job_completion_trigger_condition"].(map[string]any); !ok {
+						continue
+					}
+					// the resource's own id is just the downstream job's
+					// plain numeric id - see the format entry above.
+					listImportTriggers = append(listImportTriggers, map[string]any{
+						"id": jobTyped["id"],
+					})
+				}
+				jsonStructData = listImportTriggers
+
+			case "dbtcloud_environment_variable_job_override":
+				listOverrides := dbtCloudClient.GetEnvironmentVariableJobOverrides(listFilterProjects, prefetchedJobs)
+
+				listImportOverrides := []any{}
+				for _, override := range listOverrides {
+					overrideTyped := override.(map[string]any)
+
+					projectID := overrideTyped["project_id"].(float64)
+					jobDefinitionID := overrideTyped["job_definition_id"].(float64)
+					overrideID := overrideTyped["environment_variable_job_override_id"].(float64)
+
+					// fold project_id/job_definition_id/override_id into "id"
+					// to get a resource address matching the label generate.go
+					// produces for the same override - exactly as
+					// dbtcloud_profile's import case does above - while
+					// keeping the plain numeric override id available for the
+					// ":environment_variable_job_override_id" placeholder used
+					// by the composite import address template above.
+					overrideTyped["id"] = fmt.Sprintf("%.0f_%.0f_%.0f", projectID, jobDefinitionID, overrideID)
+
+					listImportOverrides = append(listImportOverrides, overrideTyped)
+				}
+				jsonStructData = listImportOverrides
+
 			default:
 				fmt.Fprintf(cmd.OutOrStderr(), "%q is not yet supported for state import", resourceType)
 				return
@@ -241,6 +330,39 @@ func buildTerraformImportCommand(resourceType, resourceID string, data interface
 	return fmt.Sprintf("%s %s.%s_%s %s\n", terraformImportCmdPrefix, resourceType, terraformResourceNamePrefix, resourceID, resourceImportAddress)
 }
 
+// resolveImportField looks up key in data and formats it the way import string
+// templates expect: numeric ids without a decimal point, strings as-is. If the
+// key is missing, nil, or of an unexpected type, fallback is returned instead -
+// this keeps a broken/missing field visible in the generated import address
+// rather than silently producing an incomplete one.
+//
+// This is the shared resolver behind every non-`:id` composite placeholder
+// (e.g. `:project_id`, `:connection_id`, `:repository_id`, `:name`) used by
+// resourceImportStringFormats, so a template can resolve any field present on
+// the resource's data - whether that's a single numeric id, part of a
+// composite key such as `:project_id::id`, or (via the `:id` placeholder
+// itself, substituted separately in buildRawImportAddress) a singleton keyed
+// by the account id.
+func resolveImportField(data map[string]any, key, fallback string) string {
+	if data == nil {
+		return fallback
+	}
+
+	raw, ok := data[key]
+	if !ok || raw == nil {
+		return fallback
+	}
+
+	switch v := raw.(type) {
+	case float64:
+		return fmt.Sprintf("%0.f", v)
+	case string:
+		return v
+	default:
+		return fallback
+	}
+}
+
 // buildRawImportAddress takes the resourceType and resourceID in order to lookup the
 // resource type import string and then return a suitable composite value that
 // is compatible with `terraform import`.
@@ -249,59 +371,25 @@ func buildRawImportAddress(resourceType, resourceID string, data any) string {
 		log.Fatalf("%s does not have an import format defined", resourceType)
 	}
 
-	var identifierType string
-	var identifierValue string
+	identifierType := "account"
+	identifierValue := accountID
 
-	identifierType = "account"
-	identifierValue = accountID
+	dataTyped, _ := data.(map[string]any)
 
-	connectionIDRaw, ok := data.(map[string]any)["connection_id"]
-	var connectionID string
-	if !ok {
-		connectionID = "no-connection_id"
-	} else {
-		connectionIDFloat, ok := connectionIDRaw.(float64)
-		if !ok {
-			connectionID = "no-connection_id"
-		} else {
-			connectionID = fmt.Sprintf("%0.f", connectionIDFloat)
-		}
-	}
-
-	repositoryIDCasted, ok := data.(map[string]any)["repository_id"].(float64)
-	var repositoryID string
-	if !ok {
-		repositoryID = "no-repository_id"
-	} else {
-		repositoryID = fmt.Sprintf("%0.f", repositoryIDCasted)
-	}
-
-	projectIDRaw, ok := data.(map[string]any)["project_id"]
-	var projectID string
-	if !ok {
-		projectID = "no-project_id"
-	} else {
-		projectID = fmt.Sprintf("%0.f", projectIDRaw.(float64))
-	}
-
-	nameRaw, ok := data.(map[string]any)["name"]
-	var name string
-	if !ok {
-		name = "no-name"
-	} else {
-		name = nameRaw.(string)
-	}
+	connectionID := resolveImportField(dataTyped, "connection_id", "no-connection_id")
+	repositoryID := resolveImportField(dataTyped, "repository_id", "no-repository_id")
+	projectID := resolveImportField(dataTyped, "project_id", "no-project_id")
+	profileID := resolveImportField(dataTyped, "profile_id", "no-profile_id")
+	name := resolveImportField(dataTyped, "name", "no-name")
+	jobDefinitionID := resolveImportField(dataTyped, "job_definition_id", "no-job_definition_id")
+	environmentVariableJobOverrideID := resolveImportField(dataTyped, "environment_variable_job_override_id", "no-environment_variable_job_override_id")
 
 	var userID string
 	if resourceType == "dbtcloud_user_groups" {
-		// for dbtcloud_user_groups, the ID is the user ID
-		userIDRaw, ok := data.(map[string]any)["id"]
-		_ = userIDRaw
-		if !ok {
-			userID = "no-userid"
-		} else {
-			userID = fmt.Sprintf("%0.f", userIDRaw.(float64))
-		}
+		// for dbtcloud_user_groups, the composite id template's :user_id
+		// placeholder resolves against the top-level `id` field (the user id),
+		// not a `user_id` field.
+		userID = resolveImportField(dataTyped, "id", "no-userid")
 	}
 
 	s := resourceImportStringFormats[resourceType]
@@ -314,8 +402,11 @@ func buildRawImportAddress(resourceType, resourceID string, data any) string {
 		":connection_id", connectionID,
 		":repository_id", repositoryID,
 		":project_id", projectID,
+		":profile_id", profileID,
 		":name", name,
 		":user_id", userID,
+		":job_definition_id", jobDefinitionID,
+		":environment_variable_job_override_id", environmentVariableJobOverrideID,
 	)
 
 	return replacer.Replace(s)

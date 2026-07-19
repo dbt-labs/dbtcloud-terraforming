@@ -535,3 +535,221 @@ func (c *DbtCloudHTTPClient) GetGlobalConnections() []any {
 
 	return allConnectionDetails
 }
+
+// EnvVarJobOverrideResponse mirrors the response envelope returned by the
+// job-scoped environment-variable override endpoint
+// (/v3/accounts/{account}/projects/{project}/environment-variables/job/?job_definition_id={job}).
+// Unlike the environment-scoped endpoint (see EnvVarResponse/EnvVarData
+// above), this endpoint's "data" is a flat map of env var name -> per-scope
+// override details (e.g. {"account": {...}, "environment": {...}, "job":
+// {...}}), with no intermediate "variables" wrapper.
+type EnvVarJobOverrideResponse struct {
+	Data map[string]any `json:"data"`
+}
+
+func (c *DbtCloudHTTPClient) GetDataEnvVarJobOverrides(url string) map[string]any {
+
+	jsonPayload, err := c.GetEndpoint(url)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	var response EnvVarJobOverrideResponse
+
+	err = json.Unmarshal(jsonPayload, &response)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	return response.Data
+}
+
+// GetEnvironmentVariableJobOverrides fetches per-job environment-variable
+// value overrides for the given jobs (typically the already-prefetched jobs
+// list generate.go/import.go build for other job-scoped resources), scoped
+// to listProjects.
+//
+// The override data doesn't live behind an account- or project-wide "list
+// all overrides" endpoint - it's only queryable per job_definition_id (see
+// GetEnvironmentVariableJobOverride in the provider's own client, which takes
+// a job_definition_id query param) - so we loop through the known jobs for
+// each project and query per job, mirroring the per-project-then-per-item
+// fetch pattern GetProfiles already uses above.
+//
+// Each returned item is a flattened map with "name" (the env var name),
+// "project_id", "job_definition_id", "environment_variable_job_override_id"
+// (the override's own numeric id - present so callers can fold a
+// project/job/override composite into a unique resource id, exactly as
+// GetProfiles's callers do for profile_id), and "raw_value" (the override's
+// value, matching the dbtcloud_environment_variable_job_override resource's
+// own attribute name).
+func (c *DbtCloudHTTPClient) GetEnvironmentVariableJobOverrides(listProjects []int, jobs []any) []any {
+	allOverrides := []any{}
+
+	jobIDsByProject := map[int][]int{}
+	for _, job := range jobs {
+		jobTyped := job.(map[string]any)
+		jobID := int(jobTyped["id"].(float64))
+		projectID := int(jobTyped["project_id"].(float64))
+		jobIDsByProject[projectID] = append(jobIDsByProject[projectID], jobID)
+	}
+
+	for projectID, jobIDs := range jobIDsByProject {
+		if len(listProjects) > 0 && !lo.Contains(listProjects, projectID) {
+			continue
+		}
+
+		for _, jobID := range jobIDs {
+			url := fmt.Sprintf("%s/v3/accounts/%s/projects/%d/environment-variables/job/?job_definition_id=%d", c.HostURL, c.AccountID, projectID, jobID)
+			jobOverrides := c.GetDataEnvVarJobOverrides(url)
+
+			for envVarName, value := range jobOverrides {
+				// "project" is a pseudo-key returned alongside the per-variable
+				// entries on the environment-scoped endpoint (see
+				// GetEnvironmentVariables); we haven't observed it here but skip
+				// it defensively for the same reason.
+				if envVarName == "project" {
+					continue
+				}
+
+				valueTyped, ok := value.(map[string]any)
+				if !ok {
+					continue
+				}
+
+				jobOverrideTyped, ok := valueTyped["job"].(map[string]any)
+				if !ok || jobOverrideTyped == nil {
+					// this env var has no job-level override for this job - only
+					// account/environment-level values, which aren't this
+					// resource's concern.
+					continue
+				}
+
+				overrideValue, _ := jobOverrideTyped["value"].(string)
+
+				allOverrides = append(allOverrides, map[string]any{
+					"name":                                 envVarName,
+					"project_id":                           float64(projectID),
+					"job_definition_id":                    float64(jobID),
+					"environment_variable_job_override_id": jobOverrideTyped["id"],
+					"raw_value":                            overrideValue,
+				})
+			}
+		}
+	}
+
+	return allOverrides
+}
+
+// accountFeaturesData mirrors the payload returned by the account features
+// endpoint. The JSON keys on the wire use a mix of hyphens and underscores;
+// they get normalized to the underscored attribute names used by the
+// `dbtcloud_account_features` Terraform resource schema when GetAccountFeatures
+// builds its result map below.
+type accountFeaturesData struct {
+	AdvancedCI                 bool `json:"advanced-ci"`
+	PartialParsing             bool `json:"partial-parsing"`
+	RepoCaching                bool `json:"repo-caching"`
+	AIFeatures                 bool `json:"ai_features"`
+	CatalogIngestion           bool `json:"catalog-ingestion"`
+	ExplorerAccountUI          bool `json:"explorer-account-ui"`
+	FusionMigrationPermissions bool `json:"fusion-migration-permissions"`
+}
+
+type accountFeaturesResponse struct {
+	Data accountFeaturesData `json:"data"`
+}
+
+// GetAccountFeatures fetches the account-level feature flags (Advanced CI, AI
+// features, catalog ingestion, etc.) that gate whether certain dbt Cloud
+// resources (e.g. jobs using Advanced CI) can be created in an account.
+//
+// Unlike every other resource in this file, account features are a singleton:
+// there is exactly one set of flags per account rather than a list of items,
+// and the object has no numeric `id` of its own. We return a single-element
+// slice with `id` set to the account id so it fits the same []any shape the
+// rest of the generator/importer code already works with.
+func (c *DbtCloudHTTPClient) GetAccountFeatures() []any {
+	url := fmt.Sprintf("%s/private/accounts/%s/features/", c.HostURL, c.AccountID)
+
+	jsonPayload, err := c.GetEndpoint(url)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	var response accountFeaturesResponse
+	if err := json.Unmarshal(jsonPayload, &response); err != nil {
+		log.Fatal(err)
+	}
+
+	features := map[string]any{
+		"id":                           c.AccountID,
+		"advanced_ci":                  response.Data.AdvancedCI,
+		"partial_parsing":              response.Data.PartialParsing,
+		"repo_caching":                 response.Data.RepoCaching,
+		"ai_features":                  response.Data.AIFeatures,
+		"catalog_ingestion":            response.Data.CatalogIngestion,
+		"explorer_account_ui":          response.Data.ExplorerAccountUI,
+		"fusion_migration_permissions": response.Data.FusionMigrationPermissions,
+	}
+
+	return []any{features}
+}
+
+// GetProfiles fetches the profiles (project-scoped bindings of a connection,
+// credentials, and optional extended attributes) for each project in
+// listProjects, mirroring the per-project fetch pattern already used by
+// GetConnections/GetEnvironmentVariables above.
+//
+// The profiles endpoint itself doesn't return the warehouse type of the
+// credentials a profile points at, but callers (see the dbtcloud_profile
+// case in generate.go) need that to know which specific credential resource
+// type (dbtcloud_snowflake_credential, dbtcloud_bigquery_credential, etc.) a
+// profile's credentials_id should be linked to. We can't reuse
+// GetCredentials for this lookup because it only returns credentials that
+// are still attached to an environment's legacy credentials_id - which a
+// profile-bound environment's credentials never are, since those are bound
+// through the profile instead. So we fetch each project's credentials list
+// directly here and attach the matching credential (under the "credentials"
+// key) to each profile, mirroring how the environments endpoint already
+// embeds a nested "credentials" object for the same purpose.
+func (c *DbtCloudHTTPClient) GetProfiles(listProjects []int) []any {
+	projects := c.GetProjects(listProjects)
+	allProfiles := []any{}
+
+	for _, project := range projects {
+		projectTyped := project.(map[string]any)
+		projectID := int(projectTyped["id"].(float64))
+
+		if len(listProjects) > 0 && !lo.Contains(listProjects, projectID) {
+			continue
+		}
+
+		url := fmt.Sprintf("%s/v3/accounts/%s/projects/%d/profiles/", c.HostURL, c.AccountID, projectID)
+		projectProfiles := c.GetData(url)
+
+		if len(projectProfiles) == 0 {
+			continue
+		}
+
+		credentialsURL := fmt.Sprintf("%s/v3/accounts/%s/projects/%d/credentials/", c.HostURL, c.AccountID, projectID)
+		projectCredentials := c.GetData(credentialsURL)
+		credentialByID := map[float64]map[string]any{}
+		for _, credential := range projectCredentials {
+			credentialTyped := credential.(map[string]any)
+			credentialByID[credentialTyped["id"].(float64)] = credentialTyped
+		}
+
+		for _, profile := range projectProfiles {
+			profileTyped := profile.(map[string]any)
+			if credentialsID, ok := profileTyped["credentials_id"].(float64); ok {
+				if credentialDetails, found := credentialByID[credentialsID]; found {
+					profileTyped["credentials"] = credentialDetails
+				}
+			}
+			allProfiles = append(allProfiles, profileTyped)
+		}
+	}
+
+	return allProfiles
+}

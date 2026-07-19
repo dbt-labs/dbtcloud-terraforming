@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 
@@ -93,6 +94,46 @@ func TestResourceGeneration(t *testing.T) {
 		"dbt Cloud projects":     {identifierType: "account", resourceType: "dbtcloud_project", testdataFilename: "dbtcloud_project"},
 		"dbt Cloud jobs":         {identifierType: "account", resourceType: "dbtcloud_job", testdataFilename: "dbtcloud_job"},
 		"dbt Cloud repositories": {identifierType: "account", resourceType: "dbtcloud_repository", testdataFilename: "dbtcloud_repository"},
+		// NOTE: the "dbtcloud_account_features" cassette (testdata/dbtcloud/dbtcloud_account_features.yaml)
+		// has not been recorded yet - recording it requires live account credentials via:
+		//   OVERWRITE_VCR_CASSETTES=true go test ./internal/app/dbtcloud-terraforming/cmd/... \
+		//     -run TestResourceGeneration/dbt_Cloud_account_features -v
+		// Until that cassette exists, this row is scaffolded but will fail if run; see
+		// TestGenerate_ComputeResourceLabel and TestGenerate_AccountFeaturesHCLEmission for
+		// standalone unit coverage of the singleton ID handling and attribute emission in
+		// the meantime.
+		"dbt Cloud account features": {identifierType: "account", resourceType: "dbtcloud_account_features", testdataFilename: "dbtcloud_account_features"},
+		// NOTE: the "dbtcloud_profile" cassette (testdata/dbtcloud/dbtcloud_profile.yaml)
+		// has not been recorded yet - recording it requires live account credentials via:
+		//   OVERWRITE_VCR_CASSETTES=true go test ./internal/app/dbtcloud-terraforming/cmd/... \
+		//     -run TestResourceGeneration/dbt_Cloud_profiles -v
+		// Until that cassette exists, this row is scaffolded but will fail if run; see
+		// TestGenerate_ProfileHCLEmission and TestGenerate_TransformProfileForGenerate for
+		// standalone unit coverage of the composite ID handling and attribute emission in
+		// the meantime.
+		"dbt Cloud profiles": {identifierType: "account", resourceType: "dbtcloud_profile", testdataFilename: "dbtcloud_profile"},
+		// NOTE: the "dbtcloud_job_completion_trigger" cassette (testdata/dbtcloud/dbtcloud_job_completion_trigger_resource.yaml)
+		// has not been recorded yet - recording it requires a live account with at
+		// least one job with a completion trigger configured, via:
+		//   OVERWRITE_VCR_CASSETTES=true go test ./internal/app/dbtcloud-terraforming/cmd/... \
+		//     -run TestResourceGeneration/dbt_Cloud_job_completion_triggers -v
+		// Until that cassette exists, this row is scaffolded but will fail if run; see
+		// TestGenerate_TransformJobCompletionTriggerForGenerate and
+		// TestGenerate_JobCompletionTriggerHCLEmission for standalone unit coverage of the
+		// trigger extraction, status mapping, and attribute emission in the meantime.
+		"dbt Cloud job completion triggers": {identifierType: "account", resourceType: "dbtcloud_job_completion_trigger", testdataFilename: "dbtcloud_job_completion_trigger_resource"},
+		// NOTE: the "dbtcloud_environment_variable_job_override" cassette
+		// (testdata/dbtcloud/dbtcloud_environment_variable_job_override.yaml) has not been
+		// recorded yet - recording it requires a live account with at least one job-level
+		// environment variable override configured, via:
+		//   OVERWRITE_VCR_CASSETTES=true go test ./internal/app/dbtcloud-terraforming/cmd/... \
+		//     -run TestResourceGeneration/dbt_Cloud_environment_variable_job_overrides -v
+		// Until that cassette exists, this row is scaffolded but will fail if run; see
+		// TestGenerate_TransformEnvironmentVariableJobOverrideForGenerate and
+		// TestGenerate_EnvironmentVariableJobOverrideHCLEmission for standalone unit coverage
+		// of the composite ID handling, secret externalization, and attribute emission in the
+		// meantime.
+		"dbt Cloud environment variable job overrides": {identifierType: "account", resourceType: "dbtcloud_environment_variable_job_override", testdataFilename: "dbtcloud_environment_variable_job_override"},
 	}
 
 	for name, tc := range tests {
@@ -165,4 +206,531 @@ func TestResourceGeneration(t *testing.T) {
 			assert.Equal(t, strings.TrimRight(expected, "\n"), strings.TrimRight(output, "\n"))
 		})
 	}
+}
+
+// TestGenerate_ComputeResourceLabel covers the generalized ID-derivation logic
+// used to label generated `resource "..." "..."` blocks: the existing
+// numeric/string id-based behavior for list-based resources must stay
+// byte-identical, while a non-empty resourceIDOverride must let a resource
+// (e.g. the dbtcloud_account_features singleton) opt out of id-based
+// labelling entirely.
+func TestGenerate_ComputeResourceLabel(t *testing.T) {
+	tests := map[string]struct {
+		resourceType       string
+		structData         map[string]interface{}
+		resourceIDOverride string
+		want               string
+	}{
+		"numeric id, no override (existing behavior, e.g. dbtcloud_project)": {
+			resourceType: "dbtcloud_project",
+			structData:   map[string]interface{}{"id": float64(123)},
+			want:         "terraform_managed_resource_123",
+		},
+		"string id, no override (existing behavior, e.g. dbtcloud_environment_variable)": {
+			resourceType: "dbtcloud_environment_variable",
+			structData:   map[string]interface{}{"id": "71_DBT_ENV"},
+			want:         "terraform_managed_resource_71_DBT_ENV",
+		},
+		"singleton override takes precedence over structData id": {
+			resourceType:       "dbtcloud_account_features",
+			structData:         map[string]interface{}{"id": "1234"},
+			resourceIDOverride: "account_features",
+			want:               "terraform_managed_resource_account_features",
+		},
+		"singleton override with no id in structData at all": {
+			resourceType:       "dbtcloud_account_features",
+			structData:         map[string]interface{}{},
+			resourceIDOverride: "account_features",
+			want:               "terraform_managed_resource_account_features",
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := computeResourceLabel(tc.resourceType, tc.structData, tc.resourceIDOverride)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// TestGenerate_ComputeResourceLabelPanicsOnMissingID locks in the existing
+// panic behavior for resources with no id and no override - this is the
+// pre-existing guard against silently generating an unlabelled resource
+// block, and must keep working for every currently-supported id-keyed
+// resource type.
+func TestGenerate_ComputeResourceLabelPanicsOnMissingID(t *testing.T) {
+	assert.Panics(t, func() {
+		computeResourceLabel("dbtcloud_project", map[string]interface{}{}, "")
+	})
+}
+
+// fabricatedAccountFeaturesPayload mimics the single-element shape returned
+// by dbtCloudClient.GetAccountFeatures(): a singleton object keyed by the
+// account id rather than a per-item numeric id, with boolean feature flags
+// matching the dbtcloud_account_features Terraform resource's attribute
+// names.
+func fabricatedAccountFeaturesPayload() map[string]interface{} {
+	return map[string]interface{}{
+		"id":                           "1234",
+		"advanced_ci":                  true,
+		"partial_parsing":              false,
+		"repo_caching":                 true,
+		"ai_features":                  true,
+		"catalog_ingestion":            false,
+		"explorer_account_ui":          true,
+		"fusion_migration_permissions": false,
+	}
+}
+
+// TestGenerate_AccountFeaturesHCLEmission feeds a fabricated account features
+// payload through the same label-derivation and attribute-emission
+// primitives (computeResourceLabel, writeAttrLine) that generate.go's
+// schema-driven loop uses for every resource, and asserts that the resulting
+// HCL carries the singleton resource label and the expected boolean
+// attributes. This does not require a live account or the Terraform provider
+// schema (see the scaffolded, not-yet-recorded "dbt Cloud account features"
+// row in TestResourceGeneration for full end-to-end coverage once a cassette
+// exists).
+func TestGenerate_AccountFeaturesHCLEmission(t *testing.T) {
+	features := fabricatedAccountFeaturesPayload()
+
+	resourceLabel := computeResourceLabel("dbtcloud_account_features", features, "account_features")
+	assert.Equal(t, "terraform_managed_resource_account_features", resourceLabel)
+
+	f := hclwrite.NewEmptyFile()
+	resource := f.Body().AppendNewBlock("resource", []string{"dbtcloud_account_features", resourceLabel}).Body()
+
+	attrNames := make([]string, 0, len(features))
+	for k := range features {
+		if k == "id" {
+			// id is never emitted as an attribute - it's only used for
+			// import/state purposes, matching every other resource type.
+			continue
+		}
+		attrNames = append(attrNames, k)
+	}
+	sort.Strings(attrNames)
+
+	for _, attrName := range attrNames {
+		writeAttrLine(attrName, features[attrName], "", resource)
+	}
+
+	output := string(f.Bytes())
+
+	assert.Contains(t, output, `resource "dbtcloud_account_features" "terraform_managed_resource_account_features"`)
+	// hclwrite aligns "=" signs to the longest attribute name in the block, so
+	// match on the key/value pair rather than an exact single-space rendering.
+	for _, want := range []string{
+		"advanced_ci",
+		"partial_parsing",
+		"repo_caching",
+		"ai_features",
+		"catalog_ingestion",
+		"explorer_account_ui",
+		"fusion_migration_permissions",
+	} {
+		re := regexp.MustCompile(fmt.Sprintf(`(?m)^\s*%s\s*= (true|false)$`, regexp.QuoteMeta(want)))
+		assert.Regexp(t, re, output, "expected attribute %q to be emitted", want)
+	}
+	assert.True(t, strings.Contains(output, "true") && strings.Contains(output, "false"), "expected both true and false flag values to be emitted")
+	assert.NotRegexp(t, regexp.MustCompile(`(?m)^\s*id\s*=`), output, "the id field must not be emitted as an attribute")
+}
+
+// withLinkedResources temporarily sets the package-level listLinkedResources
+// used by linkResource() for the duration of a test, restoring the previous
+// value afterwards. Tests that don't call this leave linking off, matching
+// linkResource's own "no resources configured -> false" default.
+func withLinkedResources(t *testing.T, linked []string) {
+	t.Helper()
+	orig := listLinkedResources
+	listLinkedResources = linked
+	t.Cleanup(func() { listLinkedResources = orig })
+}
+
+// fabricatedProfilePayload mimics a single element of the []any returned by
+// dbtCloudClient.GetProfiles(): a project-scoped profile with the attribute
+// names confirmed against the terraform-provider-dbtcloud schema (key,
+// connection_id, credentials_id - plural, extended_attributes_id optional).
+func fabricatedProfilePayload() map[string]any {
+	return map[string]any{
+		"id":             float64(10),
+		"project_id":     float64(5),
+		"key":            "my-profile",
+		"connection_id":  float64(20),
+		"credentials_id": float64(30),
+	}
+}
+
+// TestGenerate_TransformProfileForGenerate covers the dbtcloud_profile
+// generate-time transform: the composite id folding (project_id into "id",
+// plain id preserved as "profile_id") must happen regardless of linking, and
+// linked references must only replace connection_id/credentials_id/
+// project_id when the corresponding resource type is in
+// --linked-resource-types.
+func TestGenerate_TransformProfileForGenerate(t *testing.T) {
+	t.Run("no linking: ids stay numeric except the folded composite id", func(t *testing.T) {
+		profile := fabricatedProfilePayload()
+		got := transformProfileForGenerate(profile)
+
+		assert.Equal(t, "5_10", got["id"])
+		assert.Equal(t, float64(10), got["profile_id"])
+		assert.Equal(t, float64(5), got["project_id"])
+		assert.Equal(t, float64(20), got["connection_id"])
+		assert.Equal(t, float64(30), got["credentials_id"])
+	})
+
+	t.Run("linking dbtcloud_project and dbtcloud_global_connection rewrites references", func(t *testing.T) {
+		withLinkedResources(t, []string{"dbtcloud_project", "dbtcloud_global_connection"})
+
+		profile := fabricatedProfilePayload()
+		got := transformProfileForGenerate(profile)
+
+		assert.Equal(t, "5_10", got["id"], "the composite id must still be derived from the original numeric project_id")
+		assert.Contains(t, got["project_id"], "dbtcloud_project.terraform_managed_resource_5.id")
+		assert.Contains(t, got["connection_id"], "dbtcloud_global_connection.terraform_managed_resource_20.id")
+	})
+
+	t.Run("linking dbtcloud_snowflake_credential without embedded credentials type falls back to TBD", func(t *testing.T) {
+		withLinkedResources(t, []string{"dbtcloud_snowflake_credential"})
+
+		profile := fabricatedProfilePayload()
+		got := transformProfileForGenerate(profile)
+
+		assert.Equal(t, "---TBD---", got["credentials_id"])
+	})
+
+	t.Run("linking dbtcloud_snowflake_credential with embedded credentials type resolves the reference", func(t *testing.T) {
+		withLinkedResources(t, []string{"dbtcloud_snowflake_credential"})
+
+		profile := fabricatedProfilePayload()
+		profile["credentials"] = map[string]any{"type": "snowflake", "adapter_version": ""}
+		got := transformProfileForGenerate(profile)
+
+		assert.Contains(t, got["credentials_id"], "dbtcloud_snowflake_credential.terraform_managed_resource_30.credential_id")
+	})
+}
+
+// TestGenerate_ProfileHCLEmission feeds a fabricated profile payload through
+// the same label-derivation and attribute-emission primitives
+// (computeResourceLabel, writeAttrLine) that generate.go's schema-driven
+// loop uses for every resource, asserting the resulting HCL carries the
+// project-scoped composite label and the confirmed attribute names.
+func TestGenerate_ProfileHCLEmission(t *testing.T) {
+	profile := transformProfileForGenerate(fabricatedProfilePayload())
+
+	resourceLabel := computeResourceLabel("dbtcloud_profile", profile, "")
+	assert.Equal(t, "terraform_managed_resource_5_10", resourceLabel)
+
+	f := hclwrite.NewEmptyFile()
+	resource := f.Body().AppendNewBlock("resource", []string{"dbtcloud_profile", resourceLabel}).Body()
+
+	// profile_id is a computed-only attribute in the real provider schema
+	// (like credential_id on the credential resources), so it - like id -
+	// would never reach writeAttrLine via generate.go's schema-driven loop.
+	for _, attrName := range []string{"project_id", "key", "connection_id", "credentials_id"} {
+		writeAttrLine(attrName, profile[attrName], "", resource)
+	}
+
+	output := string(f.Bytes())
+
+	assert.Contains(t, output, `resource "dbtcloud_profile" "terraform_managed_resource_5_10"`)
+	assert.Contains(t, output, `key`)
+	assert.Contains(t, output, "connection_id")
+	assert.Contains(t, output, "credentials_id")
+	assert.NotRegexp(t, regexp.MustCompile(`(?m)^\s*id\s*=`), output, "the id field must not be emitted as an attribute")
+	assert.NotRegexp(t, regexp.MustCompile(`(?m)^\s*profile_id\s*=`), output, "profile_id is computed-only and must not be emitted as an attribute")
+}
+
+// fabricatedEnvironmentPayload mimics a single element of the []any returned
+// by dbtCloudClient.GetEnvironments(): withProfile controls whether the
+// environment carries a primary_profile_id (profile-based account) or the
+// legacy connection_id/credentials_id/extended_attributes_id trio
+// (non-profile account) - never both, matching what the real API returns.
+func fabricatedEnvironmentPayload(withProfile bool) map[string]any {
+	env := map[string]any{
+		"id":         float64(456),
+		"project_id": float64(71),
+		"name":       "prod",
+	}
+	if withProfile {
+		env["primary_profile_id"] = float64(10)
+	} else {
+		env["connection_id"] = float64(20)
+		env["credentials_id"] = float64(30)
+		env["extended_attributes_id"] = float64(40)
+	}
+	return env
+}
+
+// TestGenerate_TransformEnvironmentForGenerate_EitherOr is the core
+// regression test for the never-both invariant: a profile-bound environment
+// must emit primary_profile_id and none of the legacy trio, a non-profile
+// environment must be completely unchanged from the pre-existing behavior,
+// and neither branch may ever leave both primary_profile_id and any of the
+// legacy trio present at once.
+func TestGenerate_TransformEnvironmentForGenerate_EitherOr(t *testing.T) {
+	t.Run("profile-bound environment: primary_profile_id present, legacy trio absent", func(t *testing.T) {
+		env := fabricatedEnvironmentPayload(true)
+		got := transformEnvironmentForGenerate(env)
+
+		assert.Contains(t, got, "primary_profile_id")
+		assert.Equal(t, float64(10), got["primary_profile_id"], "without linking, primary_profile_id stays the plain numeric profile id")
+
+		for _, legacyField := range []string{"connection_id", "credential_id", "credentials_id", "extended_attributes_id"} {
+			assert.NotContains(t, got, legacyField, "legacy field %q must be absent whenever primary_profile_id is present", legacyField)
+		}
+	})
+
+	t.Run("profile-bound environment with linking: primary_profile_id resolves to the profile resource, legacy trio still absent", func(t *testing.T) {
+		withLinkedResources(t, []string{"dbtcloud_profile"})
+
+		env := fabricatedEnvironmentPayload(true)
+		got := transformEnvironmentForGenerate(env)
+
+		assert.Contains(t, got["primary_profile_id"], "dbtcloud_profile.terraform_managed_resource_71_10.profile_id")
+		for _, legacyField := range []string{"connection_id", "credential_id", "credentials_id", "extended_attributes_id"} {
+			assert.NotContains(t, got, legacyField)
+		}
+	})
+
+	t.Run("non-profile environment: legacy trio unchanged, primary_profile_id absent", func(t *testing.T) {
+		env := fabricatedEnvironmentPayload(false)
+		got := transformEnvironmentForGenerate(env)
+
+		assert.NotContains(t, got, "primary_profile_id")
+		assert.Equal(t, float64(20), got["connection_id"])
+		assert.Equal(t, float64(30), got["credential_id"], "credentials_id is renamed to credential_id, matching pre-existing behavior")
+		assert.Equal(t, float64(40), got["extended_attributes_id"])
+	})
+}
+
+// fabricatedJobWithCompletionTriggerPayload mimics a single element of the
+// []any returned by dbtCloudClient.GetJobs(): a job whose
+// job_completion_trigger_condition field (already parsed by the existing
+// dbtcloud_job case, for its own separate purposes) carries the "run after"
+// relationship dbtcloud_job_completion_trigger reproduces as a standalone
+// resource. withCondition controls whether the condition is present at all,
+// matching jobs that have no completion trigger configured.
+func fabricatedJobWithCompletionTriggerPayload(withCondition bool) map[string]any {
+	job := map[string]any{
+		"id":         float64(456),
+		"project_id": float64(71),
+	}
+	if withCondition {
+		job["job_completion_trigger_condition"] = map[string]any{
+			"condition": map[string]any{
+				"job_id":     float64(123),
+				"project_id": float64(99),
+				"statuses":   []any{float64(10), float64(20)},
+			},
+		}
+	}
+	return job
+}
+
+// TestGenerate_TransformJobCompletionTriggerForGenerate covers the
+// dbtcloud_job_completion_trigger extraction from a job's own payload: a job
+// with no completion trigger condition must be skipped entirely (ok=false),
+// the numeric status codes on the condition must be mapped to their text
+// equivalents via mapJobStatusCodeToText rather than left as raw codes, and
+// job_id/trigger_job_id must only become linked references when the
+// corresponding resource type is in --linked-resource-types.
+func TestGenerate_TransformJobCompletionTriggerForGenerate(t *testing.T) {
+	t.Run("job with no completion trigger condition is skipped", func(t *testing.T) {
+		job := fabricatedJobWithCompletionTriggerPayload(false)
+		_, ok := transformJobCompletionTriggerForGenerate(job)
+		assert.False(t, ok)
+	})
+
+	t.Run("no linking: statuses are mapped to text, ids stay numeric", func(t *testing.T) {
+		job := fabricatedJobWithCompletionTriggerPayload(true)
+		got, ok := transformJobCompletionTriggerForGenerate(job)
+		assert.True(t, ok)
+
+		assert.Equal(t, float64(456), got["id"], "id is the downstream job's own plain numeric id")
+		assert.Equal(t, float64(456), got["job_id"])
+		assert.Equal(t, float64(123), got["trigger_job_id"])
+		assert.Equal(t, float64(99), got["project_id"])
+		assert.Equal(t, []string{"success", "error"}, got["statuses"], "numeric status codes must be mapped to text, not left raw")
+	})
+
+	t.Run("linking dbtcloud_job and dbtcloud_project rewrites references", func(t *testing.T) {
+		withLinkedResources(t, []string{"dbtcloud_job", "dbtcloud_project"})
+
+		job := fabricatedJobWithCompletionTriggerPayload(true)
+		got, ok := transformJobCompletionTriggerForGenerate(job)
+		assert.True(t, ok)
+
+		assert.Contains(t, got["job_id"], "dbtcloud_job.terraform_managed_resource_456.id", "job_id links to the downstream job")
+		assert.Contains(t, got["trigger_job_id"], "dbtcloud_job.terraform_managed_resource_123.id", "trigger_job_id links to the upstream job")
+		assert.Contains(t, got["project_id"], "dbtcloud_project.terraform_managed_resource_99.id")
+	})
+}
+
+// TestGenerate_JobCompletionTriggerHCLEmission feeds a fabricated
+// job-with-trigger payload through the same label-derivation and
+// attribute-emission primitives (computeResourceLabel, writeAttrLine) that
+// generate.go's schema-driven loop uses for every resource, and asserts that
+// the resulting HCL carries the flat job_id/trigger_job_id/project_id/
+// statuses attributes (mapped to text status strings, not numeric codes)
+// confirmed against the real provider schema - and that job_id/
+// trigger_job_id are linked when linking is on.
+func TestGenerate_JobCompletionTriggerHCLEmission(t *testing.T) {
+	withLinkedResources(t, []string{"dbtcloud_job"})
+
+	job := fabricatedJobWithCompletionTriggerPayload(true)
+	trigger, ok := transformJobCompletionTriggerForGenerate(job)
+	assert.True(t, ok)
+
+	resourceLabel := computeResourceLabel("dbtcloud_job_completion_trigger", trigger, "")
+	assert.Equal(t, "terraform_managed_resource_456", resourceLabel)
+
+	f := hclwrite.NewEmptyFile()
+	resource := f.Body().AppendNewBlock("resource", []string{"dbtcloud_job_completion_trigger", resourceLabel}).Body()
+
+	for _, attrName := range []string{"job_id", "trigger_job_id", "project_id", "statuses"} {
+		writeAttrLine(attrName, trigger[attrName], "", resource)
+	}
+
+	output := string(f.Bytes())
+
+	assert.Contains(t, output, `resource "dbtcloud_job_completion_trigger" "terraform_managed_resource_456"`)
+	assert.Contains(t, output, "dbtcloud_job.terraform_managed_resource_456.id", "job_id must be linked to the downstream job")
+	assert.Contains(t, output, "dbtcloud_job.terraform_managed_resource_123.id", "trigger_job_id must be linked to the upstream job")
+	assert.Contains(t, output, `"success"`)
+	assert.Contains(t, output, `"error"`)
+	assert.NotContains(t, output, "10", "the raw numeric status code must not leak into the output")
+	assert.NotRegexp(t, regexp.MustCompile(`(?m)^\s*condition\s*\{`), output, "the real provider schema has no nested condition block")
+}
+
+// fabricatedEnvVarJobOverridePayload mimics a single element of the []any
+// returned by dbtCloudClient.GetEnvironmentVariableJobOverrides(): a
+// job-scoped environment variable override. name controls whether the
+// override matches the DBT_ENV_SECRET_ convention that must externalize its
+// value to a Terraform variable.
+func fabricatedEnvVarJobOverridePayload(name string) map[string]any {
+	return map[string]any{
+		"name":                                 name,
+		"project_id":                           float64(71),
+		"job_definition_id":                    float64(456),
+		"environment_variable_job_override_id": float64(789),
+		"raw_value":                            "my-value",
+	}
+}
+
+// TestGenerate_TransformEnvironmentVariableJobOverrideForGenerate covers the
+// dbtcloud_environment_variable_job_override generate-time transform: the
+// composite id folding (project_id/job_definition_id/override_id into "id")
+// must happen regardless of linking or secrecy, a non-secret-named
+// override's raw_value must stay literal, a DBT_ENV_SECRET_-named override's
+// raw_value must be externalized to a var.* reference and registered in
+// AllTFVars, and job_definition_id/project_id must only become linked
+// references when the corresponding resource type is in
+// --linked-resource-types.
+func TestGenerate_TransformEnvironmentVariableJobOverrideForGenerate(t *testing.T) {
+	origTFVars := AllTFVars
+	origClient := dbtCloudClient
+	// the secret-externalization branch builds a "manage this in the UI"
+	// target URL off dbtCloudClient.HostURL/AccountID, exactly like the
+	// existing dbtcloud_environment_variable case does - so, like that code,
+	// it needs a non-nil client even outside of a full generate run.
+	dbtCloudClient = dbtcloud.NewDbtCloudHTTPClient("https://cloud.getdbt.com/api", "token", "9999", nil)
+	t.Cleanup(func() {
+		AllTFVars = origTFVars
+		dbtCloudClient = origClient
+	})
+
+	t.Run("no linking, non-secret name: id is folded, raw_value stays literal", func(t *testing.T) {
+		AllTFVars = []tfVar{}
+		override := fabricatedEnvVarJobOverridePayload("MY_PLAIN_VAR")
+		got := transformEnvironmentVariableJobOverrideForGenerate(override)
+
+		assert.Equal(t, "71_456_789", got["id"])
+		assert.Equal(t, float64(71), got["project_id"])
+		assert.Equal(t, float64(456), got["job_definition_id"])
+		assert.Equal(t, "my-value", got["raw_value"], "a non-secret-named override keeps its literal value inline")
+		assert.Empty(t, AllTFVars, "no Terraform variable should be registered for a non-secret override")
+	})
+
+	t.Run("secret name: raw_value is externalized to a var.* reference", func(t *testing.T) {
+		AllTFVars = []tfVar{}
+		override := fabricatedEnvVarJobOverridePayload("DBT_ENV_SECRET_TOKEN")
+		got := transformEnvironmentVariableJobOverrideForGenerate(override)
+
+		assert.Equal(t, "71_456_789", got["id"], "the composite id must still be folded for a secret-named override")
+		assert.Contains(t, got["raw_value"], "var.", "a secret-named override's value must be externalized")
+		assert.NotContains(t, got["raw_value"], "my-value", "the literal secret value must not leak into the output")
+		assert.Len(t, AllTFVars, 1, "exactly one Terraform variable must be registered for the secret override")
+		assert.Contains(t, got["raw_value"], AllTFVars[0].varName)
+	})
+
+	t.Run("linking dbtcloud_job and dbtcloud_project rewrites references", func(t *testing.T) {
+		AllTFVars = []tfVar{}
+		withLinkedResources(t, []string{"dbtcloud_job", "dbtcloud_project"})
+
+		override := fabricatedEnvVarJobOverridePayload("MY_PLAIN_VAR")
+		got := transformEnvironmentVariableJobOverrideForGenerate(override)
+
+		assert.Equal(t, "71_456_789", got["id"], "the composite id must still be derived from the original numeric ids")
+		assert.Contains(t, got["job_definition_id"], "dbtcloud_job.terraform_managed_resource_456.id")
+		assert.Contains(t, got["project_id"], "dbtcloud_project.terraform_managed_resource_71.id")
+	})
+}
+
+// TestGenerate_EnvironmentVariableJobOverrideHCLEmission feeds fabricated
+// override payloads through the same label-derivation and attribute-emission
+// primitives (computeResourceLabel, writeAttrLine) that generate.go's
+// schema-driven loop uses for every resource, and asserts the resulting HCL
+// carries the project-scoped composite label, a linked job_definition_id,
+// and - critically - that a secret-named override's raw_value is a var.*
+// reference in the output while a non-secret-named override's raw_value
+// stays a literal string.
+func TestGenerate_EnvironmentVariableJobOverrideHCLEmission(t *testing.T) {
+	origTFVars := AllTFVars
+	origClient := dbtCloudClient
+	dbtCloudClient = dbtcloud.NewDbtCloudHTTPClient("https://cloud.getdbt.com/api", "token", "9999", nil)
+	t.Cleanup(func() {
+		AllTFVars = origTFVars
+		dbtCloudClient = origClient
+	})
+
+	t.Run("non-secret override emits the literal value", func(t *testing.T) {
+		AllTFVars = []tfVar{}
+		withLinkedResources(t, []string{"dbtcloud_job"})
+
+		override := transformEnvironmentVariableJobOverrideForGenerate(fabricatedEnvVarJobOverridePayload("MY_PLAIN_VAR"))
+
+		resourceLabel := computeResourceLabel("dbtcloud_environment_variable_job_override", override, "")
+		assert.Equal(t, "terraform_managed_resource_71_456_789", resourceLabel)
+
+		f := hclwrite.NewEmptyFile()
+		resource := f.Body().AppendNewBlock("resource", []string{"dbtcloud_environment_variable_job_override", resourceLabel}).Body()
+		for _, attrName := range []string{"name", "project_id", "job_definition_id", "raw_value"} {
+			writeAttrLine(attrName, override[attrName], "", resource)
+		}
+
+		output := string(f.Bytes())
+		assert.Contains(t, output, `resource "dbtcloud_environment_variable_job_override" "terraform_managed_resource_71_456_789"`)
+		assert.Contains(t, output, "dbtcloud_job.terraform_managed_resource_456.id")
+		assert.Contains(t, output, `"my-value"`, "a non-secret-named override's value must be emitted literally")
+	})
+
+	t.Run("secret override emits a var.* reference instead of the literal value", func(t *testing.T) {
+		AllTFVars = []tfVar{}
+		withLinkedResources(t, []string{"dbtcloud_job"})
+
+		override := transformEnvironmentVariableJobOverrideForGenerate(fabricatedEnvVarJobOverridePayload("DBT_ENV_SECRET_TOKEN"))
+
+		resourceLabel := computeResourceLabel("dbtcloud_environment_variable_job_override", override, "")
+
+		f := hclwrite.NewEmptyFile()
+		resource := f.Body().AppendNewBlock("resource", []string{"dbtcloud_environment_variable_job_override", resourceLabel}).Body()
+		for _, attrName := range []string{"name", "project_id", "job_definition_id", "raw_value"} {
+			writeAttrLine(attrName, override[attrName], "", resource)
+		}
+
+		output := string(f.Bytes())
+		assert.Contains(t, output, "var.", "a secret-named override's value must be a var.* reference in the output")
+		assert.NotContains(t, output, `"my-value"`, "the literal secret value must never be emitted")
+	})
 }
