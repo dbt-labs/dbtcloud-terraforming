@@ -1,6 +1,6 @@
 module github.com/dbt-labs/dbtcloud-terraforming
 
-go 1.24.2
+go 1.25.0
 
 require (
 	github.com/MakeNowJust/heredoc/v2 v2.0.1
@@ -8,8 +8,8 @@ require (
 	github.com/charmbracelet/huh v0.6.0
 	github.com/go-test/deep v1.0.3
 	github.com/gosimple/slug v1.15.0
-	github.com/hashicorp/go-version v1.6.0
-	github.com/hashicorp/hc-install v0.5.2
+	github.com/hashicorp/go-version v1.9.0
+	github.com/hashicorp/hc-install v0.9.5
 	github.com/hashicorp/hcl/v2 v2.17.0
 	github.com/hashicorp/terraform-exec v0.18.1
 	github.com/hashicorp/terraform-json v0.17.1
@@ -24,7 +24,7 @@ require (
 )
 
 require (
-	github.com/ProtonMail/go-crypto v0.0.0-20230217124315-7d5c6f04bbb8 // indirect
+	github.com/ProtonMail/go-crypto v1.4.1 // indirect
 	github.com/agext/levenshtein v1.2.1 // indirect
 	github.com/apparentlymart/go-textseg/v13 v13.0.0 // indirect
 	github.com/apparentlymart/go-textseg/v15 v15.0.0 // indirect
@@ -39,20 +39,21 @@ require (
 	github.com/charmbracelet/x/cellbuf v0.0.13 // indirect
 	github.com/charmbracelet/x/exp/strings v0.0.0-20240722160745-212f7b056ed0 // indirect
 	github.com/charmbracelet/x/term v0.2.1 // indirect
-	github.com/cloudflare/circl v1.6.1 // indirect
+	github.com/cloudflare/circl v1.6.3 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
-	github.com/fatih/color v1.13.0 // indirect
+	github.com/fatih/color v1.16.0 // indirect
 	github.com/fsnotify/fsnotify v1.6.0 // indirect
-	github.com/google/go-cmp v0.5.9 // indirect
+	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/gosimple/unidecode v1.0.1 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
+	github.com/hashicorp/go-retryablehttp v0.7.8 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
 	github.com/magiconair/properties v1.8.7 // indirect
-	github.com/mattn/go-colorable v0.1.12 // indirect
+	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-localereader v0.0.1 // indirect
 	github.com/mattn/go-runewidth v0.0.16 // indirect
@@ -73,7 +74,7 @@ require (
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	golang.org/x/crypto v0.45.0 // indirect
 	golang.org/x/exp v0.0.0-20231006140011-7918f672742d // indirect
-	golang.org/x/mod v0.29.0 // indirect
+	golang.org/x/mod v0.35.0 // indirect
 	golang.org/x/sync v0.18.0 // indirect
 	golang.org/x/sys v0.38.0 // indirect
 	golang.org/x/term v0.37.0 // indirect
