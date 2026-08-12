@@ -258,6 +258,17 @@ func TestGenerate_FilterOutDefaultGroupIDs(t *testing.T) {
 		"unknown group id (not in the account's groups) is kept": {
 			groupIDs: []int{999},
 			want:     []int{999},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := filterOutDefaultGroupIDs(tc.groupIDs, groupIDToName)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
 // TestGenerate_ComputeResourceLabel covers the generalized ID-derivation logic
 // used to label generated `resource "..." "..."` blocks: the existing
 // numeric/string id-based behavior for list-based resources must stay
@@ -297,7 +308,6 @@ func TestGenerate_ComputeResourceLabel(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			got := filterOutDefaultGroupIDs(tc.groupIDs, groupIDToName)
 			got := computeResourceLabel(tc.resourceType, tc.structData, tc.resourceIDOverride)
 			assert.Equal(t, tc.want, got)
 		})
@@ -384,6 +394,8 @@ func TestGenerate_UserGroupsHCLExcludesDefaultGroups(t *testing.T) {
 	assert.NotContains(t, fullOutput, ", 2]")
 	assert.NotContains(t, fullOutput, "= [3,")
 	assert.NotContains(t, fullOutput, ", 3]")
+}
+
 // TestGenerate_ComputeResourceLabelPanicsOnMissingID locks in the existing
 // panic behavior for resources with no id and no override - this is the
 // pre-existing guard against silently generating an unlabelled resource
