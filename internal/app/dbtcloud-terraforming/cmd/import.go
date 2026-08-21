@@ -137,9 +137,16 @@ func runImport() func(cmd *cobra.Command, args []string) {
 			case "dbtcloud_environment_variable":
 				mapEnvVars := dbtCloudClient.GetEnvironmentVariables(listFilterProjects)
 
+				// mapEnvVars and its nested per-project map are both plain Go
+				// maps (built from JSON), and Go's map iteration order is
+				// randomized, so ranging over them directly would make
+				// listEnvVars come out in a different order on every run.
+				// Iterate sortedKeys instead for a stable import output.
 				listEnvVars := []any{}
-				for projectID, envVars := range mapEnvVars {
-					for envVarName := range envVars.(map[string]any) {
+				for _, projectID := range sortedKeys(mapEnvVars) {
+					envVars := mapEnvVars[projectID].(map[string]any)
+
+					for _, envVarName := range sortedKeys(envVars) {
 						envDetails := map[string]any{}
 						envDetails["name"] = envVarName
 						envDetails["project_id"] = float64(projectID)
@@ -147,6 +154,7 @@ func runImport() func(cmd *cobra.Command, args []string) {
 						listEnvVars = append(listEnvVars, envDetails)
 					}
 				}
+
 				jsonStructData = listEnvVars
 
 			case "dbtcloud_group":

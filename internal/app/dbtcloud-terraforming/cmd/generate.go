@@ -696,8 +696,18 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 					cacheEnvs = dbtCloudClient.GetEnvironments(listFilterProjects)
 				}
 
-				for projectID, envVars := range mapEnvVars {
-					for envVarName, envVarValues := range envVars.(map[string]any) {
+				// mapEnvVars and its nested per-project map are both plain Go
+				// maps (built from JSON), and Go's map iteration order is
+				// randomized, so ranging over them directly would make
+				// listEnvVars - and the AllTFVars entries registered below
+				// for DBT_ENV_SECRET_ variables - come out in a different
+				// order on every run. Iterate sortedKeys instead for a
+				// stable generate output.
+				for _, projectID := range sortedKeys(mapEnvVars) {
+					envVars := mapEnvVars[projectID].(map[string]any)
+
+					for _, envVarName := range sortedKeys(envVars) {
+						envVarValues := envVars[envVarName]
 						envDetails := map[string]any{}
 						envDetails["name"] = envVarName
 						envDetails["id"] = fmt.Sprintf("%d_%s", projectID, envVarName)
@@ -711,8 +721,10 @@ func generateResources() func(cmd *cobra.Command, args []string) {
 						collectEnvValues := map[string]any{}
 
 						envVarValuesTyped := envVarValues.(map[string]any)
+
 						listEnvNames := []string{}
-						for envName, envValues := range envVarValuesTyped {
+						for _, envName := range sortedKeys(envVarValuesTyped) {
+							envValues := envVarValuesTyped[envName]
 
 							if envName != "project" {
 								listEnvNames = append(listEnvNames, envName)

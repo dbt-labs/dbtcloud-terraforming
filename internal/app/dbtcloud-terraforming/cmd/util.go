@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"cmp"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,6 +18,21 @@ import (
 	"github.com/spf13/viper"
 	"github.com/zclconf/go-cty/cty"
 )
+
+// sortedKeys returns m's keys in ascending order. Go's map iteration order
+// is randomized by design (even across repeated ranges over the same map
+// in a single run), so any code that needs to range over a map and get the
+// same result every time - e.g. building generate/import output from data
+// unmarshaled from JSON into a map - should range over sortedKeys(m)
+// instead of the map directly.
+func sortedKeys[K cmp.Ordered, V any](m map[K]V) []K {
+	keys := make([]K, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
+	return keys
+}
 
 var hasNumber = regexp.MustCompile("[0-9]+").MatchString
 
@@ -199,17 +215,11 @@ func writeAttrLine(key string, value interface{}, parentName string, body *hclwr
 		body.SetAttributeValue(key, cty.ListVal(childCty))
 	case map[string]interface{}:
 
-		sortedKeys := make([]string, 0, len(values))
-		for k := range values {
-			sortedKeys = append(sortedKeys, k)
-		}
-		sort.Strings(sortedKeys)
-
 		unquotedValues := false
 		hclTokens := []*hclwrite.Token{{Type: hclsyntax.TokenIdent, Bytes: []byte("{")}}
 
 		ctyMap := make(map[string]cty.Value)
-		for _, v := range sortedKeys {
+		for _, v := range sortedKeys(values) {
 
 			// Check if values[v] can be safely type asserted to string
 			if strValue, ok := values[v].(string); ok {
@@ -249,7 +259,7 @@ func writeAttrLine(key string, value interface{}, parentName string, body *hclwr
 			// If there are unquoted values we set them via lower level hclwrite.Token API
 			// the annoying thing is we need to also set all the other attributes for a given key
 			// there is no way to mix/match the cty approach and the hclwrite.Token approach
-			for k := range ctyMap {
+			for _, k := range sortedKeys(ctyMap) {
 				hclTokens = append(hclTokens, &hclwrite.Token{Type: hclsyntax.TokenIdent, Bytes: []byte("\n")})
 				hclTokens = append(hclTokens, &hclwrite.Token{Type: hclsyntax.TokenIdent, Bytes: []byte(k + ` = `)})
 
